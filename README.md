@@ -131,7 +131,7 @@ cd wx-export-app
 python build/build.py
 ```
 
-版本号唯一真源是 `src/common.py` 里的 `VERSION`。安装包不进 Git，发布走 Releases。
+版本号唯一真源是 `src/common.py` 里的 `VERSION`。安装包不进 Git，发布走 Releases。下个版本上传前必须先按 [发版流程](docs/工程说明.md#6-发版流程上传前必须自检) 完成自检，未通过不上传。
 
 更详细的工程说明、版本记录与复检口径见 [docs/工程说明.md](docs/工程说明.md)。
 
