@@ -395,7 +395,7 @@ V0.3.0 内部两块改动——
 | 5 | 全量 10 步套件 | ✅ 完成 · 10/10 PASS（2m45s）· `验证输出/全量复检-V0.3.0.json` |
 | 6 | 版本号 + 产物 | ✅ 完成 · `0.3.0`；Setup 17,673,593 B sha256 `cb2d78b6…4818a`；便携 zip 17,388,644 B sha256 `38bd8a6e…b0169` |
 | 7 | 本机安装（覆盖 V0.1.2） | ✅ 完成 · `%LOCALAPPDATA%\微信收藏导出` 已是 V0.3.0（与 Setup 同 sha256），`版本.txt` / 卸载项 = `0.3.0`，`prefs.json` / `sender_roster.json` 保留；安装态 exe `verify_mcp` 19/19 |
-| 8 | GitHub 同步 | ✅ 完成 · `origin/main` = `63aedff`、tag `v0.3.0`；Release [v0.3.0](https://github.com/shaoboqian-arch/wx-export-app/releases/tag/v0.3.0) 附两个产物（服务端 sha256 与本地一致） |
+| 8 | GitHub 同步 | ✅ 完成 · `origin/main` = `63aedff`、tag `v0.3.0`；当时已发 Release（公开仓现已不提供该历史版本） |
 
 **源码级验证已全绿**：单元测试 27/27 · 类型注册表 18/18 · 聊天记录 21/21 ·
 复检矩阵 20/20 · 界面 31/31 · 设置页 27/27 · 导出回归 13/13 · 初始化窗口 11/11 ·
