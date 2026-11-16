@@ -58,6 +58,17 @@ def ensure_vendor():
          "pyinstaller==6.22.3", "pycryptodome==3.23.0"])
 
 
+
+def stage_core():
+    """复制 src/core，但不带 __pycache__，避免把旧字节码打进安装包。"""
+    dest = os.path.join(HERE, "core-staged")
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    def ignore(dirpath, names):
+        return [n for n in names if n == "__pycache__" or n.endswith(".pyc")]
+    shutil.copytree(os.path.join(SRC, "core"), dest, ignore=ignore)
+    return dest
+
 def build_exe():
     import make_icon
     ico = make_icon.ensure()
@@ -80,13 +91,18 @@ def build_exe():
         "--hidden-import", "ctypes.wintypes",
         "--hidden-import", "unicodedata",
         "--hidden-import", "zstandard",
-        "--add-data", os.path.join(SRC, "core") + os.pathsep + "core",
+        "--add-data", stage_core() + os.pathsep + "core",
         "--add-data", ico + os.pathsep + ".",
         "--icon", ico,
         "--distpath", PYI_DIST, "--workpath", PYI_WORK, "--specpath", HERE,
         os.path.join(SRC, "app.py"),
     ]
-    run(args, env=env)
+    try:
+        run(args, env=env)
+    finally:
+        staged = os.path.join(HERE, "core-staged")
+        if os.path.isdir(staged):
+            shutil.rmtree(staged, ignore_errors=True)
     exe = os.path.join(PYI_DIST, "wxexport.exe")
     if not os.path.isfile(exe):
         raise SystemExit("PyInstaller 未产出 exe")

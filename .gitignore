@@ -7,6 +7,7 @@
 build/vendor/
 build/pyi-dist/
 build/pyi-work/
+build/core-staged/
 build/__pycache__/
 build/*.spec
 **/__pycache__/
