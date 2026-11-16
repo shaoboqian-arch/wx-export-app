@@ -1,0 +1,149 @@
+# -*- coding: utf-8 -*-
+"""微信收藏导出 · 单一入口
+
+    （双击）              主界面：选目标文件夹 + 日期范围 → 导出
+    Setup.exe / --setup   安装向导
+    --mcp                 MCP stdio 服务端（供其他 WorkBuddy 接入）
+    --cli --preflight     只读预检（输出 JSON）
+    --cli --export        命令行导出（输出 JSON）
+    --install             静默安装/覆盖升级：写文件 + 快捷方式 + 卸载项（[--dir 目标目录]）
+    --install-headless    构建验证用：静默释放到指定目录，不写快捷方式/注册表
+    --uninstall           卸载快捷方式与注册表项（不动导出数据）
+    --version             版本号
+"""
+import argparse
+import ctypes
+import json
+import os
+import sys
+
+import engine
+from common import VERSION
+
+
+def hide_console():
+    if os.name != "nt":
+        return
+    try:
+        h = ctypes.windll.kernel32.GetConsoleWindow()
+        if h:
+            ctypes.windll.user32.ShowWindow(h, 0)
+    except Exception:
+        pass
+
+
+def out(obj):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def cli(argv):
+    ap = argparse.ArgumentParser(prog="wx-fav-export", add_help=True)
+    ap.add_argument("--preflight", action="store_true", help="只读预检")
+    ap.add_argument("--export", action="store_true", help="执行导出")
+    ap.add_argument("--retry", action="store_true", help="对已有批次补导未取到原件的条目")
+    ap.add_argument("--batch", default="", help="补导时的批次目录")
+    ap.add_argument("--from", dest="frm", default="")
+    ap.add_argument("--to", dest="to", default="")
+    ap.add_argument("--dest", default="")
+    ap.add_argument(
+        "--kinds", default="",
+        help="resolve_item 类型，逗号分隔：image,video,file,link,chat。link 是聊天记录打包（type=14），不是公众号文章或链接卡片。省略时与主界面相同：导出图片和视频文件，并把文本、链接卡片写入清单；指定该参数时只导出这些类型的文件，不自动附带文本和链接。")
+    ap.add_argument("--root", default="")
+    ap.add_argument("--image-key", default="")
+    ap.add_argument("--setup-keys", action="store_true",
+                    help="提取数据库密钥（初始化用，自动写 ~/.wechat-cli）")
+    ap.add_argument("--capture-image-key", action="store_true",
+                    help="捕获图片密钥（需先在微信里点开一张收藏图片）")
+    a = ap.parse_args(argv)
+    if a.setup_keys:
+        root = a.root
+        if not root:
+            rs = engine.candidate_roots().get("roots") or []
+            root = rs[0]["path"] if rs else ""
+        if not root:
+            out({"ok": False, "error": "未找到微信账号目录，请用 --root 指定"})
+            return 1
+        r = engine.setup_db_keys(os.path.join(root, "db_storage"))
+        out(r)
+        return 0 if r.get("ok") else 1
+    if a.capture_image_key:
+        r = engine.capture_image_key(a.root or None)
+        out(r)
+        return 0 if r.get("ok") else 1
+    if a.preflight:
+        out(engine.safe_call(engine.preflight, a.frm, a.to, a.kinds, a.root or None))
+        return 0
+    if a.export:
+        r = engine.safe_call(engine.export, a.frm, a.to, a.dest, a.kinds,
+                             a.root or None, a.image_key or None)
+        out(r)
+        return 0 if r.get("ok") else 1
+    if a.retry:
+        r = engine.safe_call(engine.retry_missing, a.batch,
+                             a.root or None, a.image_key or None)
+        out(r)
+        return 0 if r.get("ok") else 1
+    out({"ok": False, "error": "需要 --preflight、--export 或 --retry"})
+    return 2
+
+
+def main():
+    argv = sys.argv[1:]
+    if "--version" in argv:
+        print(VERSION)
+        return 0
+
+    if "--mcp" in argv:
+        import mcp_server
+        return mcp_server.serve()
+
+    if "--install-headless" in argv:
+        import installer
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--dir", required=True)
+        a, _ = ap.parse_known_args(argv)
+        ok, msg, dest = installer.install(a.dir, no_shortcut=True)
+        out({"ok": ok, "message": msg, "dir": dest})
+        return 0 if ok else 1
+
+    if "--install" in argv:
+        # 静默安装 / 覆盖升级：与安装向导走同一条 installer.install()，只是不弹窗。
+        # 用于「装到默认位置 + 建快捷方式 + 写卸载项」，也可 --dir 指定目录。
+        import installer
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--dir", default="")
+        a, _ = ap.parse_known_args(argv)
+        ok, msg, dest = installer.install(a.dir.strip() or installer.default_dir())
+        out({"ok": ok, "message": msg, "dir": dest, "version": VERSION})
+        return 0 if ok else 1
+
+    if "--uninstall" in argv:
+        import installer
+        ok, msg = installer.uninstall()
+        out({"ok": ok, "message": msg})
+        return 0
+
+    if "--cli" in argv:
+        rest = [x for x in argv if x != "--cli"]
+        return cli(rest)
+
+    hide_console()
+    from ui_kit import enable_dpi   # 延迟加载，MCP/CLI 模式不碰 tkinter
+    enable_dpi()
+    if "--settings" in argv:
+        import settings
+        return settings.open(None)
+    basename = os.path.basename(sys.executable)
+    if "--setup" in argv or "Setup" in basename or "安装" in basename:
+        import installer
+        return installer.run()
+    import gui
+    return gui.run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

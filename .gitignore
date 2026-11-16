@@ -1,0 +1,26 @@
+# 验证产物与乱码目录（含真实导出批次）
+验证输出/
+验证安装/
+楠岃瘉杈撳嚭/
+
+# 构建缓存与隔离依赖（可由 build/build.py 重建）
+build/vendor/
+build/pyi-dist/
+build/pyi-work/
+build/__pycache__/
+build/*.spec
+**/__pycache__/
+*.py[cod]
+
+# 程序数据与密钥（误拷进目录也不进仓）
+src/_data/
+prefs.json
+all_keys.json
+**/.wechat-cli/
+*aes_key*
+*.key
+*.pem
+
+# 安装包走 Releases，不进 Git
+dist/*.exe
+dist/*.zip
