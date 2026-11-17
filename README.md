@@ -6,7 +6,7 @@
 
 图片 · 视频 · 文本 · 链接 · 语音 · 聊天记录网页
 
-![Version](https://img.shields.io/badge/version-V0.4.3-19c8b9.svg)
+![Version](https://img.shields.io/badge/version-V0.4.4-19c8b9.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)
 ![GUI](https://img.shields.io/badge/GUI-Tkinter-794f27.svg)
@@ -20,6 +20,15 @@
 微信收藏导出是一款 Windows 桌面小工具。选好文件夹和日期，即可把本机已登录微信账号里的收藏导出到本地：图片和视频按发送人分文件夹存放，文本、链接和语音写入清单，多选消息打包收藏会单独生成可离线打开的网页。
 
 安装包和便携版二选一即可使用，不必连接 Agent 或任何云端服务。全程在本机完成，密钥和导出内容不会上传。
+
+## V0.4.4 本版变更
+
+界面统一为海岛浅色，并拉平按钮与日历手感：
+
+- 设置页、安装向导和导出页与主界面同一套羊皮纸底、薄荷主色
+- 按钮悬停会抬起并拉出阴影，按下会缩小并收回；主界面与设置页对齐，不能只换颜色
+- 日历翻月按方向滑动，标题与日期格一起走，最后一周和月份标题完整
+- 焦点环只给键盘，鼠标按下不抢焦点
 
 ## 主要功能
 
@@ -71,7 +80,7 @@
 
 ## 下载安装
 
-当前版本是 **V0.4.3**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
+当前版本是 **V0.4.4**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
 
 | 安装包 | 说明 |
 |:---|:---|
