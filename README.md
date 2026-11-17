@@ -6,7 +6,7 @@
 
 图片 · 视频 · 文本 · 链接 · 语音 · 聊天记录网页
 
-![Version](https://img.shields.io/badge/version-V0.4.4-19c8b9.svg)
+![Version](https://img.shields.io/badge/version-V0.4.5-19c8b9.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)
 ![GUI](https://img.shields.io/badge/GUI-Tkinter-794f27.svg)
@@ -21,14 +21,17 @@
 
 安装包和便携版二选一即可使用，不必连接 Agent 或任何云端服务。全程在本机完成，密钥和导出内容不会上传。
 
-## V0.4.4 本版变更
+## V0.4.5 本版变更
 
-界面统一为海岛浅色，并拉平按钮与日历手感：
+修掉 V0.4.4 校验发现的 7 项问题，并把单测并入发版门禁：
 
-- 设置页、安装向导和导出页与主界面同一套羊皮纸底、薄荷主色
-- 按钮悬停会抬起并拉出阴影，按下会缩小并收回；主界面与设置页对齐，不能只换颜色
-- 日历翻月按方向滑动，标题与日期格一起走，最后一周和月份标题完整
-- 焦点环只给键盘，鼠标按下不抢焦点
+- 未布局时按钮画成空白（焦点环一并丢失）——画布宽度取默认值前先判 `<=1`
+- 单元测试不再靠人记：`tests/run_all.py` 第一步就是 `unittest discover`，全量套件 10 步变 11 步
+- 状态色（绿/琥珀/灰）收进 `ui_kit` 令牌，settings / installer / setup_env 不再各写一份十六进制
+- 清掉 `PhaseBadge` 的 `foreground` 死分支与 `hasattr` 死路径
+- 手动图片密钥默认遮蔽，可点「显示」临时看
+- 设置页「写入配置 / 测试连接 / 刷新」进行中禁用，连点不再并发
+- 设置页支持 Esc 关闭，与主窗一致
 
 ## 主要功能
 
@@ -80,7 +83,7 @@
 
 ## 下载安装
 
-当前版本是 **V0.4.4**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
+当前版本是 **V0.4.5**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
 
 | 安装包 | 说明 |
 |:---|:---|

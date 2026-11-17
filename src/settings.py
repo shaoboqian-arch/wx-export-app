@@ -14,14 +14,12 @@ import engine
 import mcp_config
 from common import APP_NAME, VERSION
 from ui_kit import (
-    BG, BORDER, ERR, MUTED, PAPER, SAND, TEXT, WHITE,
+    BG, BORDER, ERR, MUTED, PAPER, SAND, TEXT, WHITE, OK, NEUTRAL, WARN,
     CapsuleButton, IslandEntry, Tooltip, _round_rect,
     apply_icon, apply_island_style, center, fonts,
 )
 
 W, H = 620, 660
-# 成功态沿用软件里已有的绿色，对比度配羊皮纸底 4.76:1，不另造新色。
-GREEN = "#1a7f37"
 
 
 def _mono(root):
@@ -128,14 +126,16 @@ class SettingsUI:
 
         btns = tk.Frame(mcp, bg=BG)
         btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(2, 8))
-        CapsuleButton(btns, text="复制配置", width=100, height=36,
-                      font=font_small, command=self.copy_config).pack(side="left")
-        CapsuleButton(btns, text="写入配置", width=100, height=36,
-                      font=font_small, primary=True,
-                      command=self.write_config).pack(side="left", padx=(8, 0))
-        CapsuleButton(btns, text="测试连接", width=100, height=36,
-                      font=font_small, command=self.test_conn).pack(
-            side="left", padx=(8, 0))
+        self.btn_copy = CapsuleButton(btns, text="复制配置", width=100, height=36,
+                                      font=font_small, command=self.copy_config)
+        self.btn_copy.pack(side="left")
+        self.btn_write = CapsuleButton(btns, text="写入配置", width=100, height=36,
+                                       font=font_small, primary=True,
+                                       command=self.write_config)
+        self.btn_write.pack(side="left", padx=(8, 0))
+        self.btn_conn = CapsuleButton(btns, text="测试连接", width=100, height=36,
+                                      font=font_small, command=self.test_conn)
+        self.btn_conn.pack(side="left", padx=(8, 0))
         self.cfg_state = tk.Label(mcp, text="", font=font_small, fg=MUTED, bg=BG,
                                   wraplength=560, anchor="w", justify="left")
         self.cfg_state.grid(row=4, column=0, columnspan=3, sticky="w")
@@ -165,8 +165,9 @@ class SettingsUI:
         self.env_state = tk.Label(r, text="", font=font_small, fg=MUTED, bg=BG,
                                   wraplength=430, anchor="w", justify="left")
         self.env_state.pack(side="left", fill="x", expand=True)
-        CapsuleButton(r, text="刷新", width=84, height=36, font=font_small,
-                      command=self.refresh_env).pack(side="right")
+        self.btn_refresh = CapsuleButton(r, text="刷新", width=84, height=36,
+                                         font=font_small, command=self.refresh_env)
+        self.btn_refresh.pack(side="right")
 
         # ---------------- 底部 ----------------
         bottom = tk.Frame(f, bg=BG)
@@ -182,6 +183,8 @@ class SettingsUI:
 
         self._after_id = win.after(80, self.poll)
         win.bind("<Destroy>", self._on_destroy, add="+")
+        # 主窗 Esc=关闭，设置窗之前没绑，按了没反应
+        win.bind("<Escape>", lambda _e: (win.destroy(), "break")[1])
         self.q.put(("inspect", None))
         self.refresh_env()
 
@@ -205,7 +208,7 @@ class SettingsUI:
         try:
             self.win.clipboard_clear()
             self.win.clipboard_append(mcp_config.fragment_text())
-            self.set_state("已复制配置片段", GREEN)
+            self.set_state("已复制配置片段", OK)
         except tk.TclError as e:
             self.set_state(f"复制失败：{e}", ERR)
 
@@ -217,15 +220,31 @@ class SettingsUI:
                 self.q.put((tag, {"ok": False, "error": f"{type(e).__name__}: {e}"}))
         threading.Thread(target=work, daemon=True).start()
 
+    def _busy(self, tag, on):
+        """进行中禁按钮：连点会并发跑两次 merge/握手，备份文件越堆越多。"""
+        btn = {"write": "btn_write", "conn": "btn_conn", "env": "btn_refresh"}.get(tag)
+        w = getattr(self, btn, None) if btn else None
+        if w is not None:
+            w.configure(state="disabled" if on else "normal")
+
     def write_config(self):
+        if self.btn_write.cget("state") == "disabled":
+            return
+        self._busy("write", True)
         self.set_state("正在写入配置…")
         self._bg(mcp_config.merge_into, "write")
 
     def test_conn(self):
+        if self.btn_conn.cget("state") == "disabled":
+            return
+        self._busy("conn", True)
         self.set_state("正在测试连接…")
         self._bg(mcp_config.test_connection, "conn")
 
     def refresh_env(self):
+        if self.btn_refresh.cget("state") == "disabled":
+            return
+        self._busy("env", True)
         self.env_state.configure(text="检查中…")
         self._bg(lambda: engine.safe_call(engine.status), "env")
 
@@ -243,6 +262,8 @@ class SettingsUI:
         try:
             while True:
                 tag, data = self.q.get_nowait()
+                if tag in ("write", "conn", "env"):
+                    self._busy(tag, False)
                 if tag == "inspect":
                     text, color = self._inspect()
                     self.cfg_state.configure(text=text, foreground=color)
@@ -250,7 +271,7 @@ class SettingsUI:
                     if data.get("ok"):
                         msg = (f"{data['action']}成功 · 保留 {data['preserved_count']} 个已有连接器"
                                + (f" · 已备份 {data['backup']}" if data.get("backup") else ""))
-                        self.set_state(msg, GREEN)
+                        self.set_state(msg, OK)
                         text, color = self._inspect()
                         self.cfg_state.configure(text=text, foreground=color)
                     else:
@@ -260,7 +281,7 @@ class SettingsUI:
                         self.set_state(
                             f"连接正常 · {data.get('protocol')} · {len(data.get('tools', []))} 个工具 · "
                             f"环境{'就绪' if data.get('ready') else data.get('message', '未就绪')} · "
-                            f"{data.get('elapsed_ms', 0)} ms", GREEN)
+                            f"{data.get('elapsed_ms', 0)} ms", OK)
                     else:
                         self.set_state(f"连接失败：{data.get('error') or data.get('message')}", ERR)
                 elif tag == "env":
@@ -276,10 +297,10 @@ class SettingsUI:
                         for k, v in vals.items():
                             self.env_labels[k].configure(
                                 text=v,
-                                foreground=GREEN if v in ("已就绪", "就绪") else
+                                foreground=OK if v in ("已就绪", "就绪") else
                                 (ERR if "缺失" in v or "未找到" in v else MUTED))
                         self.env_state.configure(
-                            text="环境检查完成", foreground=GREEN if data.get("ready") else MUTED)
+                            text="环境检查完成", foreground=OK if data.get("ready") else MUTED)
         except queue.Empty:
             pass
         try:

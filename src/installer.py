@@ -18,12 +18,12 @@ from tkinter import filedialog, ttk
 
 from common import APP_NAME, EXE_NAME, VERSION, app_dir, is_frozen
 from ui_kit import (
+    OK,
     BG, ERR, MUTED, Tooltip, apply_icon, apply_island_style,
     center, fonts, CapsuleButton, IslandEntry,
 )
 
 # 成功态沿用软件里已有的绿色，不另造新色。
-GREEN = "#1a7f37"
 INSTALL_W, INSTALL_H = 600, 228
 
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\WeChatFavExport"
@@ -264,7 +264,7 @@ class SetupUI:
 
     def done(self, ok, msg):
         self.busy = False
-        self.set_state(msg, GREEN if ok else ERR)
+        self.set_state(msg, OK if ok else ERR)
         self.btn.configure(text="完成", state="normal", command=self.root.destroy)
 
 

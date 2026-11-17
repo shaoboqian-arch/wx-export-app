@@ -16,12 +16,13 @@ from tkinter import filedialog, ttk
 import engine
 from common import APP_NAME, VERSION
 from ui_kit import (
-    BG, TEXT, MUTED, ERR, BORDER, Tooltip, apply_icon, apply_island_style,
+    BG, TEXT, MUTED, ERR, BORDER, OK, NEUTRAL, WARN,
+    Tooltip, apply_icon, apply_island_style,
     center, fonts, CapsuleButton, IslandEntry,
 )
 
 W, H = 640, 350
-GREY, GREEN, RED, AMBER = "#666666", "#1a7f37", "#b42318", "#b45309"
+
 
 
 class SetupEnvUI:
@@ -61,7 +62,7 @@ class SetupEnvUI:
         self.combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_status())
         ttk.Button(acc, text="浏览…", width=8, command=self.pick).grid(
             row=0, column=1, padx=(8, 0))
-        self.root_state = ttk.Label(acc, text="", font=font_small, foreground=GREY,
+        self.root_state = ttk.Label(acc, text="", font=font_small, foreground=NEUTRAL,
                                     wraplength=520, anchor="w")
         self.root_state.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -73,7 +74,7 @@ class SetupEnvUI:
         ttk.Label(keys, text="数据库密钥", font=font_small, width=12).grid(
             row=0, column=0, sticky="w", pady=2)
         self.db_state = ttk.Label(keys, text="检查中…", font=font_small,
-                                  foreground=GREY, anchor="w")
+                                  foreground=NEUTRAL, anchor="w")
         self.db_state.grid(row=0, column=1, sticky="w", pady=2)
         self.db_btn = CapsuleButton(keys, text="提取密钥", command=self.do_extract,
                                     width=104, height=30, font=font_small, bg=BG)
@@ -82,7 +83,7 @@ class SetupEnvUI:
         ttk.Label(keys, text="图片密钥", font=font_small, width=12).grid(
             row=1, column=0, sticky="w", pady=(8, 2))
         self.img_state = ttk.Label(keys, text="检查中…", font=font_small,
-                                   foreground=GREY, anchor="w")
+                                   foreground=NEUTRAL, anchor="w")
         self.img_state.grid(row=1, column=1, sticky="w", pady=(8, 2))
         ib = ttk.Frame(keys)
         ib.grid(row=1, column=2, sticky="e", pady=(8, 2))
@@ -95,17 +96,21 @@ class SetupEnvUI:
         self.manual = ttk.Frame(keys)
         self.manual.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         self.manual.columnconfigure(0, weight=1)
-        self.manual_entry = IslandEntry(self.manual, font=font_small)
+        # 图片密钥是 16/32 位十六进制，明文回显等于肩窥即泄露；默认遮蔽，按需显形
+        self.manual_entry = IslandEntry(self.manual, font=font_small, show="*")
         self.manual_entry.grid(row=0, column=0, sticky="ew")
+        self.reveal_btn = CapsuleButton(self.manual, text="显示", command=self.toggle_reveal,
+                                        width=64, height=30, font=font_small, bg=BG)
+        self.reveal_btn.grid(row=0, column=1, padx=(6, 0))
         CapsuleButton(self.manual, text="保存", command=self.save_manual,
-                      width=64, height=30, font=font_small, bg=BG).grid(row=0, column=1, padx=(6, 0))
+                      width=64, height=30, font=font_small, bg=BG).grid(row=0, column=2, padx=(6, 0))
         self.manual.grid_remove()
 
         # ---------------- 底部 ----------------
         bottom = ttk.Frame(f)
         bottom.grid(row=2, column=0, sticky="ew", pady=(16, 0))
         bottom.columnconfigure(0, weight=1)
-        self.state = ttk.Label(bottom, text="", font=font_small, foreground=GREY,
+        self.state = ttk.Label(bottom, text="", font=font_small, foreground=NEUTRAL,
                                anchor="w", wraplength=470, justify="left")
         self.state.grid(row=0, column=0, sticky="w")
         self.close_btn = CapsuleButton(bottom, text="完成", command=self.close,
@@ -117,7 +122,7 @@ class SetupEnvUI:
         self.reload_roots()
 
     # ---------------------------------------------------------------- 状态
-    def set_state(self, text, color=GREY):
+    def set_state(self, text, color=NEUTRAL):
         self.full_state = text
         self.state.configure(text=text if len(text) <= 64 else text[:61] + "…",
                              foreground=color)
@@ -152,26 +157,26 @@ class SetupEnvUI:
             has_fav = os.path.isfile(os.path.join(root, "db_storage", "favorite", "favorite.db"))
             self.root_state.configure(
                 text="收藏库已找到" if has_fav else "该目录下没有收藏数据库",
-                foreground=GREEN if has_fav else RED)
+                foreground=OK if has_fav else ERR)
         else:
             self.root_state.configure(text="未找到，请点「浏览…」指定 xwechat_files 下的账号目录",
-                                      foreground=RED)
+                                      foreground=ERR)
         if not p.get("ok", True):
-            self.set_state(p.get("error", "环境检查失败"), RED)
+            self.set_state(p.get("error", "环境检查失败"), ERR)
             return
         db_ok, img_ok = bool(p.get("db_keys")), bool(p.get("image_key"))
         self.db_state.configure(text="已就绪" if db_ok else "未就绪",
-                                foreground=GREEN if db_ok else RED)
+                                foreground=OK if db_ok else ERR)
         self.img_state.configure(text="已就绪" if img_ok else "未就绪",
-                                 foreground=GREEN if img_ok else RED)
+                                 foreground=OK if img_ok else ERR)
         self.db_btn.configure(text="重新提取" if db_ok else "提取密钥")
         self.img_btn.configure(text="重新检测" if img_ok else "开始检测")
         if p.get("ready"):
-            self.set_state("环境就绪，可以开始导出", GREEN)
+            self.set_state("环境就绪，可以开始导出", OK)
         elif not db_ok:
-            self.set_state("先提取数据库密钥", GREY)
+            self.set_state("先提取数据库密钥", NEUTRAL)
         elif not img_ok:
-            self.set_state("在微信里打开一张收藏图片，再点「开始检测」", GREY)
+            self.set_state("在微信里打开一张收藏图片，再点「开始检测」", NEUTRAL)
 
     def pick(self):
         d = filedialog.askdirectory(title="选择微信账号目录（包含 db_storage 的那一级）")
@@ -204,7 +209,7 @@ class SetupEnvUI:
             return
         root = self.current_root()
         if not root:
-            self.set_state("先选择微信账号目录", RED)
+            self.set_state("先选择微信账号目录", ERR)
             return
         db = os.path.join(root, "db_storage")
         self._lock(True)
@@ -217,11 +222,11 @@ class SetupEnvUI:
             return
         root = self.current_root()
         if not root:
-            self.set_state("先选择微信账号目录", RED)
+            self.set_state("先选择微信账号目录", ERR)
             return
         n = engine.image_sample_count(root)
         if not n.get("count"):
-            self.set_state("本机还没有图片缓存：先在微信里打开一张收藏图片", AMBER)
+            self.set_state("本机还没有图片缓存：先在微信里打开一张收藏图片", WARN)
             return
         self.stop_flag = False
         self._lock(True)
@@ -229,6 +234,12 @@ class SetupEnvUI:
         self._bg(lambda: engine.capture_image_key(
             root, on_tick=lambda a, b, c: self.q.put(("tick", (a, b, c))),
             should_stop=lambda: self.stop_flag), "img")
+
+    def toggle_reveal(self):
+        """在明文/掩码之间切换；只影响本机输入框，不落盘。"""
+        shown = self.manual_entry.entry.cget("show") == ""
+        self.manual_entry.entry.configure(show="" if not shown else "*")
+        self.reveal_btn.configure(text="隐藏" if not shown else "显示")
 
     def toggle_manual(self):
         self.manual_open = not self.manual_open
@@ -241,14 +252,14 @@ class SetupEnvUI:
     def save_manual(self):
         key = self.manual_entry.get().strip()
         if not key:
-            self.set_state("先填写密钥", RED)
+            self.set_state("先填写密钥", ERR)
             return
         r = engine.set_image_key_manual(key)
         if r.get("ok"):
-            self.set_state(r.get("message", "已写入图片密钥"), GREEN)
+            self.set_state(r.get("message", "已写入图片密钥"), OK)
             self.refresh_status()
         else:
-            self.set_state(r.get("error", "写入失败"), RED)
+            self.set_state(r.get("error", "写入失败"), ERR)
 
     # ---------------------------------------------------------------- 轮询
     def poll(self):
@@ -262,22 +273,22 @@ class SetupEnvUI:
                     if phase == "scan":
                         self.set_state(f"第 {a}/{b} 轮扫描中…")
                     elif phase == "miss":
-                        self.set_state(f"第 {a} 轮未命中，继续扫描…", AMBER)
+                        self.set_state(f"第 {a} 轮未命中，继续扫描…", WARN)
                     else:
                         self.set_state(f"第 {a} 轮 · 已扫 {phase} 个内存区")
                 elif tag == "db":
                     self._lock(False)
                     if data.get("ok"):
-                        self.set_state(data.get("message", "密钥已写入"), GREEN)
+                        self.set_state(data.get("message", "密钥已写入"), OK)
                     else:
-                        self.set_state(data.get("error", "提取失败"), RED)
+                        self.set_state(data.get("error", "提取失败"), ERR)
                     self.refresh_status()
                 elif tag == "img":
                     self._lock(False)
                     if data.get("ok"):
-                        self.set_state(data.get("message", "已捕获图片密钥"), GREEN)
+                        self.set_state(data.get("message", "已捕获图片密钥"), OK)
                     else:
-                        self.set_state(data.get("error", "未捕获到"), RED)
+                        self.set_state(data.get("error", "未捕获到"), ERR)
                     self.refresh_status()
         except queue.Empty:
             pass
@@ -291,7 +302,7 @@ class SetupEnvUI:
     def close(self):
         self.stop_flag = True
         if self.busy_flag:
-            self.set_state("正在收尾，稍候再关…", AMBER)
+            self.set_state("正在收尾，稍候再关…", WARN)
             self.win.after(600, self.close)
             return
         root = self.current_root()

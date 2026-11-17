@@ -29,6 +29,11 @@ SAND = "#f0e8d8"
 BORDER = "#dcd8d1"
 # 错误红原为 #e05a5a（3.40:1），加深到 6.15:1；ERR_BG 只是底色，不动。
 ERR = "#b02a1f"
+# 状态色（跨视图共用）。**不要在 settings/installer/setup_env 里重复定义十六进制**：
+# 之前 GREEN 在三处各写一遍、AMBER 三处，改一处漏两处就是这么来的。
+OK = "#1a7f37"        # 成功 / 完成
+WARN = "#b45309"      # 进行中 / 需要注意
+NEUTRAL = "#666666"   # 未开始 / 设置页正文灰
 ERR_BG = "#fdeeee"
 WHITE = "#ffffff"
 PAPER = "#fffef8"
@@ -340,8 +345,14 @@ class CapsuleButton(tk.Canvas):
 
     def _draw(self):
         self.delete("all")
-        w = int(self.winfo_width() or self._box_w)
-        h = int(self.winfo_height() or self._box_h)
+        # 未布局的画布 winfo_width() 返回 1，而 1 是真值 —— `or self._box_w` 永远轮不到，
+        # 于是早退分支把整只按钮画成空白（焦点环也一起没了）。这里显式判 <=1 再回退。
+        w = int(self.winfo_width())
+        h = int(self.winfo_height())
+        if w <= 1:
+            w = int(self._box_w)
+        if h <= 1:
+            h = int(self._box_h)
         if w < 8 or h < 8:
             return
         disabled = self._state == "disabled"
@@ -539,7 +550,7 @@ class IslandEntry(tk.Frame):
 
 
 class PhaseBadge(tk.Canvas):
-    """阶段胶囊微标：pending / now / done。兼容 configure(foreground=...)。"""
+    """阶段胶囊微标：pending / now / done。状态只由 set_mode 驱动。"""
 
     def __init__(self, master, text="", font=None, width=72, height=26, **kw):
         super().__init__(master, width=width, height=height, highlightthickness=0,
@@ -558,19 +569,9 @@ class PhaseBadge(tk.Canvas):
     def configure(self, **kw):
         if "text" in kw:
             self._text = kw.pop("text")
-        if "foreground" in kw:
-            # 兼容旧 set_phase：绿=完成，琥珀=进行中，灰=未到
-            color = (kw.pop("foreground") or "").lower()
-            if color in ("#1a7f37", "#19c8b9"):
-                self._mode = "done"
-            elif color in ("#b45309", "#19c8b9"):
-                self._mode = "now"
-            elif color in ("#666666", "#9f927d"):
-                self._mode = "pending"
-            else:
-                # 由调用顺序保证；未知颜色时按绿/琥珀/灰近似
-                if color in ("#1a7f37",):
-                    self._mode = "done"
+        # foreground 只为兼容老调用保留，不再映射状态：阶段只由 set_mode 决定。
+        # 旧实现里 "#19c8b9" 在 if/elif 各出现一次、else 永远不可达，等于假装支持。
+        kw.pop("foreground", None)
         if kw:
             super().configure(**kw)
         self._draw()
@@ -586,8 +587,12 @@ class PhaseBadge(tk.Canvas):
 
     def _draw(self):
         self.delete("all")
-        w = int(self.winfo_width() or self._box_w)
-        h = int(self.winfo_height() or self._box_h)
+        w = int(self.winfo_width())
+        h = int(self.winfo_height())
+        if w <= 1:
+            w = int(self._box_w)
+        if h <= 1:
+            h = int(self._box_h)
         if self._mode == "now":
             fill, fg = MINT, ON_MINT
         elif self._mode == "done":

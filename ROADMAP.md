@@ -591,3 +591,22 @@ URL 是微信客户端拿这段描述去自己的 CDN 接口拼的，本地还�
 | 全量复检 | 10/10 PASS（2m22s）· `验证输出/全量复检-V0.4.4.json`；窗口标题 / 安装向导 / MCP `serverInfo` 均 `0.4.4` |
 | 本机安装 | V0.4.3 → V0.4.4，安装态 exe 与 Setup 同 sha256，卸载项仍 1 个，prefs 保留 |
 | GitHub | tag `v0.4.4` + Release 两附件（ASCII 名 + 中文标签） |
+
+---
+
+## 15. V0.4.5 校验整改（2026-11-17）
+
+来源：V0.4.4 校验单（F-1 ~ F-7）。
+
+| # | 问题 | 严重度 | 处理 |
+|---|---|---|---|
+| F-1 | 未布局画布 `winfo_width()` 返回 1（真值），`or self._box_w` 永不生效 → 早退把按钮画成空白，焦点环一起丢 | S3 | `_draw` 先判 `<=1` 再回退默认尺寸；`PhaseBadge` 同改；新增「未布局态也必须画出按钮 / 焦点环」两条测试 |
+| F-2 | 发版证据缺单测步骤：10 步套件不含单测，ui_kit +377/-60 未过单测即发版 | S3 | **`tests/run_all.py` 第一步改为 `unittest discover`**，套件 10 → 11 步；本轮首跑 37/37 |
+| F-3 | 状态色四处重复定义（GREEN×3、AMBER×3、GREY、RED） | S4 | 令牌收进 `ui_kit.OK/WARN/NEUTRAL`，settings/installer/setup_env/gui 全改引用；新增「ui_kit 之外不得出现该三色字面量」测试 |
+| F-4 | `PhaseBadge.configure(foreground=...)` 死分支（#19c8b9 两处重复、else 不可达）+ gui `hasattr` 恒真死路径 | S4 | 删除映射与死路径，状态只由 `set_mode` 驱动；新增两条测试 |
+| F-5 | 手动图片密钥明文回显 | S4 | 默认 `show="*"`，加「显示/隐藏」切换；新增测试 |
+| F-6 | 写入配置/测试连接无 busy 禁用，连点并发 | S4 | `_busy(tag,on)` 门禁 + 结果回包后放开；新增测试 |
+| F-7 | 设置窗无 Esc 绑定 | S4 | `win.bind("<Escape>", ...)`；新增测试 |
+
+验证：全量 **11/11 PASS**（3m22s），`验证输出/全量复检-V0.4.5.json`；单元 **37/37**（新增 8 条）；
+Setup 17,657,707 B sha256 `f5f6c9f9…c45fcef`。

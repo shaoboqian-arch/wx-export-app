@@ -18,6 +18,7 @@ import settings
 import export_list as el
 from common import APP_NAME, VERSION, prefs_path
 from ui_kit import (
+    OK, WARN,
     BG, TEXT, MUTED, ERR, MINT, SAND, BORDER, ERR_BG,
     Tooltip, apply_icon, apply_island_style, center, fonts,
     CapsuleButton, IslandEntry, IslandBar, PhaseBadge, DatePicker,
@@ -149,7 +150,7 @@ class App:
                               anchor="w", wraplength=300, justify="left",
                               takefocus=1)
         self.state.grid(row=0, column=0, sticky="w")
-        self.info = tk.Label(sf, text="ⓘ", font=font_small, fg="#b45309", bg=BG,
+        self.info = tk.Label(sf, text="ⓘ", font=font_small, fg=WARN, bg=BG,
                              cursor="question_arrow")
         self.info.grid(row=0, column=1, padx=(6, 0))
         self.info.grid_remove()
@@ -304,12 +305,7 @@ class App:
                 mode = "now"
             else:
                 mode = "pending"
-            badge = self.phase_labels[k]
-            if hasattr(badge, "set_mode"):
-                badge.set_mode(mode)
-            else:
-                badge.configure(foreground={"done": "#1a7f37", "now": "#b45309",
-                                            "pending": "#666666"}[mode])
+            self.phase_labels[k].set_mode(mode)
 
     def refresh_table(self):
         for (g, key), lbl in self.cell.items():
@@ -445,7 +441,7 @@ class App:
 
     def close(self):
         if self.busy:
-            self.set_state("导出中，请稍候", "#b45309")
+            self.set_state("导出中，请稍候", WARN)
             return
         try:
             for aid in self.root.tk.call("after", "info"):
@@ -581,14 +577,14 @@ class App:
             if retried:
                 upgraded = int(payload.get("upgraded") or 0)
                 if failed == 0:
-                    self.set_state("补导完成，本批原件已全部取到", "#1a7f37")
+                    self.set_state("补导完成，本批原件已全部取到", OK)
                     self.show_retry_ui(False)
                 else:
                     self.set_state(
                         f"补导完成，升格 {upgraded} 条，仍有 {failed} 条未取到原件", TEXT)
                     self.show_retry_ui(True)
             else:
-                self.set_state(el.format_done_status(payload), "#1a7f37")
+                self.set_state(el.format_done_status(payload), OK)
                 self.show_retry_ui(failed > 0)
         else:
             self.set_state(payload.get("error", "导出失败"), ERR)

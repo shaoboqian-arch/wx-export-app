@@ -28,6 +28,9 @@ ROUND = sys.argv[1] if len(sys.argv) > 1 else "最终"
 
 def steps():
     return [
+        # F-2：单测必须进发版证据链。V0.4.4 的 ui_kit 大改没过单测就发了，
+        # 焦点环回归因此漏到成品；历史轮次都是单独记录「单元 N/N」，容易漏。
+        ("单元测试", [PY, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"]),
         ("复检矩阵", [PY, os.path.join(HERE, "verify_matrix.py"), ROUND]),
         ("界面布局", [PY, os.path.join(HERE, "verify_ui.py"), ROUND]),
         ("MCP 兼容", [PY, os.path.join(HERE, "verify_mcp_compat.py"), EXE]),
