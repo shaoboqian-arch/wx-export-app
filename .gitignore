@@ -25,3 +25,6 @@ all_keys.json
 # 安装包走 Releases，不进 Git
 dist/*.exe
 dist/*.zip
+
+# 公开净化门禁的本机敏感词名单，不进 Git
+tests/public_safe.local.txt
