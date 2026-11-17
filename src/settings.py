@@ -19,7 +19,7 @@ from ui_kit import (
     apply_icon, apply_island_style, center, fonts,
 )
 
-W, H = 620, 600
+W, H = 620, 660
 # 成功态沿用软件里已有的绿色，对比度配羊皮纸底 4.76:1，不另造新色。
 GREEN = "#1a7f37"
 
@@ -181,8 +181,20 @@ class SettingsUI:
         Tooltip(self.state, lambda: self.full_state, font=font_small)
 
         self._after_id = win.after(80, self.poll)
+        win.bind("<Destroy>", self._on_destroy, add="+")
         self.q.put(("inspect", None))
         self.refresh_env()
+
+    def _on_destroy(self, event=None):
+        if event and event.widget is not self.win:
+            return
+        aid = getattr(self, "_after_id", None)
+        if aid is not None:
+            try:
+                self.win.after_cancel(aid)
+            except Exception:
+                pass
+            self._after_id = None
 
     def set_state(self, text, color=MUTED):
         self.full_state = text
