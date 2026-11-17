@@ -9,6 +9,7 @@ import datetime as dt
 import ctypes
 import os
 import sys
+import time
 import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import ttk
@@ -115,6 +116,59 @@ def apply_island_style(root):
         pass
 
 
+
+def _hex_rgb(color):
+    c = color.lstrip("#")
+    return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _lerp_color(a, b, t):
+    t = 0.0 if t < 0 else 1.0 if t > 1 else t
+    ra, ga, ba = _hex_rgb(a)
+    rb, gb, bb = _hex_rgb(b)
+    return "#{:02x}{:02x}{:02x}".format(
+        int(ra + (rb - ra) * t),
+        int(ga + (gb - ga) * t),
+        int(ba + (bb - ba) * t),
+    )
+
+
+def _bezier_xy(s, p1, p2):
+    u = 1.0 - s
+    x = 3 * u * u * s * p1[0] + 3 * u * s * s * p2[0] + s * s * s
+    y = 3 * u * u * s * p1[1] + 3 * u * s * s * p2[1] + s * s * s
+    return x, y
+
+
+def ease_out(t):
+    """cubic-bezier(0.23, 1, 0.32, 1)，用于 UI 出现与位移。"""
+    t = 0.0 if t < 0 else 1.0 if t > 1 else t
+    lo, hi = 0.0, 1.0
+    p1, p2 = (0.23, 1.0), (0.32, 1.0)
+    for _ in range(14):
+        mid = (lo + hi) / 2.0
+        x, _y = _bezier_xy(mid, p1, p2)
+        if x < t:
+            lo = mid
+        else:
+            hi = mid
+    _x, y = _bezier_xy((lo + hi) / 2.0, p1, p2)
+    return y
+
+
+def prefers_reduced_motion():
+    """跟随系统「窗口内动画」开关；关了就只留颜色，不做位移。"""
+    if os.name != "nt":
+        return False
+    try:
+        val = ctypes.c_int(1)
+        # SPI_GETCLIENTAREAANIMATION = 0x1042
+        ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(val), 0)
+        return val.value == 0
+    except Exception:
+        return False
+
+
 def _round_rect(canvas, x1, y1, x2, y2, r, **kw):
     r = max(0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
     pts = [
@@ -167,7 +221,13 @@ class Tooltip:
 
 
 class CapsuleButton(tk.Canvas):
-    """胶囊按钮。primary=薄荷主按钮，否则砂色次按钮。"""
+    """胶囊按钮。主界面、设置页、安装向导共用同一套悬停/按下力学：
+
+    悬停抬起并拉出阴影，按下缩小并收回阴影；颜色只是伴随变化，不是唯一反馈。
+    """
+
+    _HOVER_MS = 140
+    _PRESS_MS = 100
 
     def __init__(self, master, text="", command=None, primary=False,
                  width=80, height=36, font=None, **kw):
@@ -182,16 +242,25 @@ class CapsuleButton(tk.Canvas):
         self._focus = False
         self._font = font or ("Microsoft YaHei UI", 10, "bold" if primary else "normal")
         self._box_w, self._box_h = width, height
+        self._lift = 0.0
+        self._press = 0.0
+        self._lift_from = 0.0
+        self._press_from = 0.0
+        self._lift_to = 0.0
+        self._press_to = 0.0
+        self._anim_id = None
+        self._anim_t0 = 0.0
+        self._anim_dur = self._HOVER_MS / 1000.0
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<Button-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
-        # 自绘控件拿不到 ttk 的默认键盘行为，这里显式补上 Tab 焦点与空格/回车。
         self.bind("<FocusIn>", self._on_focus_in)
         self.bind("<FocusOut>", self._on_focus_out)
         self.bind("<space>", self._on_key)
         self.bind("<Return>", self._on_key)
         self.bind("<Configure>", lambda _e: self._draw())
+        self.bind("<Destroy>", self._cancel_anim, add="+")
         self._draw()
 
     def configure(self, **kw):
@@ -201,11 +270,15 @@ class CapsuleButton(tk.Canvas):
             self._command = kw.pop("command")
         if "state" in kw:
             self._state = kw.pop("state")
-            self.configure(cursor="" if self._state == "disabled" else "hand2") if False else None
             try:
                 super().configure(cursor="arrow" if self._state == "disabled" else "hand2")
             except tk.TclError:
                 pass
+            if self._state == "disabled":
+                self._hover = False
+                self._lift = self._press = 0.0
+                self._lift_to = self._press_to = 0.0
+                self._cancel_anim()
         if kw:
             super().configure(**kw)
         self._draw()
@@ -219,39 +292,114 @@ class CapsuleButton(tk.Canvas):
             return self._state
         return super().cget(key)
 
-    def _palette(self):
-        if self._state == "disabled":
-            return SAND, MUTED, BORDER, None
-        if self._primary:
-            fill = MINT_HI if self._hover else MINT
-            return fill, ON_MINT, fill, MINT_HI
-        fill = "#f7f1e6" if self._hover else SAND
-        return fill, TEXT, BORDER, None
+    def _cancel_anim(self, _e=None):
+        if self._anim_id is not None:
+            try:
+                self.after_cancel(self._anim_id)
+            except (tk.TclError, ValueError):
+                pass
+            self._anim_id = None
+
+    def _retarget(self, duration_ms):
+        self._lift_from, self._press_from = self._lift, self._press
+        if prefers_reduced_motion():
+            self._lift, self._press = self._lift_to, self._press_to
+            self._cancel_anim()
+            self._draw()
+            return
+        if abs(self._lift - self._lift_to) < 0.01 and abs(self._press - self._press_to) < 0.01:
+            self._lift, self._press = self._lift_to, self._press_to
+            self._cancel_anim()
+            self._draw()
+            return
+        self._anim_t0 = time.perf_counter()
+        self._anim_dur = max(0.06, duration_ms / 1000.0)
+        self._cancel_anim()
+        self._tick()
+
+    def _tick(self):
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        t = (time.perf_counter() - self._anim_t0) / self._anim_dur
+        p = ease_out(t)
+        if t >= 1:
+            self._lift, self._press = self._lift_to, self._press_to
+            self._anim_id = None
+            self._draw()
+            return
+        self._lift = self._lift_from + (self._lift_to - self._lift_from) * p
+        self._press = self._press_from + (self._press_to - self._press_from) * p
+        self._draw()
+        try:
+            self._anim_id = self.after(8, self._tick)
+        except tk.TclError:
+            self._anim_id = None
 
     def _draw(self):
         self.delete("all")
         w = int(self.winfo_width() or self._box_w)
         h = int(self.winfo_height() or self._box_h)
-        fill, fg, border, shadow = self._palette()
-        r = h / 2
-        if shadow and self._state != "disabled":
-            _round_rect(self, 1, 3, w - 1, h - 1, r, fill=shadow, outline="")
-            _round_rect(self, 1, 1, w - 1, h - 3, r, fill=fill, outline="")
+        if w < 8 or h < 8:
+            return
+        disabled = self._state == "disabled"
+        lift = 0.0 if disabled else self._lift
+        press = 0.0 if disabled else self._press
+        if disabled:
+            fill, fg, border = SAND, MUTED, BORDER
+            shadow = None
+        elif self._primary:
+            fill = _lerp_color(MINT, MINT_HI, lift)
+            if press:
+                fill = _lerp_color(fill, "#14b3a5", press)
+            fg, border = ON_MINT, fill
+            shadow = _lerp_color("#8fd9d1", "#6fbdb5", lift)
         else:
-            _round_rect(self, 1, 1, w - 1, h - 1, r, fill=fill, outline=border)
-        self.create_text(w / 2, h / 2 - (1 if shadow else 0), text=self._text,
+            fill = _lerp_color(SAND, "#f7f1e6", lift)
+            if press:
+                fill = _lerp_color(fill, "#e8dfcf", press)
+            fg, border = TEXT, BORDER
+            shadow = "#d4cbbd"
+
+        # 在同一高度里做抬起/按下，避免阴影被画布裁掉。
+        shift_y = -2.0 * lift + 1.0 * press
+        scale = 1.0 - 0.03 * press
+        x1, y1, x2, y2 = 1.0, 3.0 + shift_y, w - 1.0, h - 3.0 + shift_y
+        if scale < 0.999:
+            cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            bw, bh = (x2 - x1) * scale, (y2 - y1) * scale
+            x1, x2 = cx - bw / 2.0, cx + bw / 2.0
+            y1, y2 = cy - bh / 2.0, cy + bh / 2.0
+        r = max(2.0, (y2 - y1) / 2.0)
+        shadow_dy = (2.0 + 2.0 * lift) * (1.0 - press) if self._primary else (3.0 * lift * (1.0 - press))
+        if shadow and shadow_dy > 0.4 and not disabled:
+            _round_rect(self, x1, y1 + shadow_dy, x2, y2 + shadow_dy, r,
+                        fill=shadow, outline="")
+            _round_rect(self, x1, y1, x2, y2, r, fill=fill, outline="")
+        else:
+            _round_rect(self, x1, y1, x2, y2, r, fill=fill, outline=border)
+        self.create_text((x1 + x2) / 2.0, (y1 + y2) / 2.0, text=self._text,
                          fill=fg, font=self._font)
-        if self._focus and self._state != "disabled":
-            # 键盘焦点环：自绘按钮没有系统焦点框，必须自己画一个可见的
-            _round_rect(self, 2, 2, w - 2, h - 2, r - 1, fill="", outline=TEXT, width=2)
+        if self._focus and not disabled:
+            _round_rect(self, x1 + 1, y1 + 1, x2 - 1, y2 - 1, max(1.0, r - 1),
+                        fill="", outline=TEXT, width=2)
 
     def _on_enter(self, _e=None):
+        if self._state == "disabled":
+            return
         self._hover = True
-        self._draw()
+        self._lift_to = 1.0
+        if self._press_to < 0.5:
+            self._press_to = 0.0
+        self._retarget(self._HOVER_MS)
 
     def _on_leave(self, _e=None):
         self._hover = False
-        self._draw()
+        self._lift_to = 0.0
+        self._press_to = 0.0
+        self._retarget(self._HOVER_MS)
 
     def _on_focus_in(self, _e=None):
         self._focus = True
@@ -262,20 +410,41 @@ class CapsuleButton(tk.Canvas):
         self._draw()
 
     def _on_key(self, _e=None):
-        if self._state != "disabled" and self._command:
+        if self._state == "disabled":
+            return "break"
+        self._press_to = 1.0
+        self._lift_to = 0.0
+        self._retarget(self._PRESS_MS)
+
+        def _bounce():
+            self._press_to = 0.0
+            self._lift_to = 1.0 if self._hover else 0.0
+            self._retarget(self._PRESS_MS)
+
+        try:
+            self.after(self._PRESS_MS, _bounce)
+        except tk.TclError:
+            pass
+        if self._command:
             self._command()
         return "break"
 
     def _on_press(self, _e=None):
+        if self._state == "disabled":
+            return
         self.focus_set()
-        if self._state != "disabled":
-            self._hover = False
-            self._draw()
+        self._press_to = 1.0
+        self._lift_to = 0.0
+        self._retarget(self._PRESS_MS)
 
     def _on_release(self, _e=None):
-        self._hover = True
-        self._draw()
-        if self._state != "disabled" and self._command:
+        if self._state == "disabled":
+            return
+        was_pressed = self._press_to > 0.5 or self._press > 0.5
+        self._press_to = 0.0
+        self._lift_to = 1.0 if self._hover else 0.0
+        self._retarget(self._PRESS_MS)
+        if was_pressed and self._hover and self._command:
             self._command()
 
 
@@ -310,11 +479,31 @@ class IslandEntry(tk.Frame):
         self.entry.bind("<FocusIn>", lambda _e: self._draw(focus=True))
         self.entry.bind("<FocusOut>", lambda _e: self._draw(focus=False))
         self._focus = False
+        self._hover = False
+        for w in (self, self._canvas, self.entry):
+            w.bind("<Enter>", self._on_enter, add="+")
+            w.bind("<Leave>", self._on_leave, add="+")
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, _event=None):
         w = max(self._min_w, int(self.winfo_width() or self._min_w))
         self.entry.place_configure(x=14, y=5, width=max(20, w - 28), height=26)
+        self._draw()
+
+    def _on_enter(self, _e=None):
+        self._hover = True
+        self._draw()
+
+    def _on_leave(self, _e=None):
+        # 移到内部 Entry 时 Frame 会先 Leave，这里看指针还在不在整块里。
+        try:
+            x, y = self.winfo_pointerxy()
+            if (self.winfo_rootx() <= x <= self.winfo_rootx() + self.winfo_width()
+                    and self.winfo_rooty() <= y <= self.winfo_rooty() + self.winfo_height()):
+                return
+        except tk.TclError:
+            pass
+        self._hover = False
         self._draw()
 
     def _draw(self, event=None, focus=None):
@@ -326,8 +515,13 @@ class IslandEntry(tk.Frame):
         h = int(c.winfo_height() or self._height)
         if w < 4 or h < 4:
             return
-        outline = MINT if self._focus else BORDER
-        _round_rect(c, 1, 1, w - 1, h - 1, h / 2, fill=WHITE, outline=outline)
+        if self._focus:
+            outline, width = MINT, 2
+        elif self._hover:
+            outline, width = "#c8bfb0", 1
+        else:
+            outline, width = BORDER, 1
+        _round_rect(c, 1, 1, w - 1, h - 1, h / 2, fill=WHITE, outline=outline, width=width)
 
     def get(self):
         return self.entry.get()
@@ -478,12 +672,19 @@ class IslandBar(tk.Canvas):
 
 
 class DatePicker:
-    """简单日历弹层，选中后把 YYYY-MM-DD 写回输入框。"""
+    """简单日历弹层，选中后把 YYYY-MM-DD 写回输入框。
+
+    翻月是同方向滑入滑出（约 220ms，可打断），星期行和左右键不动。
+    """
+
+    _SLIDE_MS = 220
 
     def __init__(self, entry, font=None):
         self.entry = entry
         self.font = font or ("Microsoft YaHei UI", 9)
         self.win = None
+        self._slide_job = None
+        self._pages = []
 
     def toggle(self, _event=None):
         if self.win is not None:
@@ -492,12 +693,14 @@ class DatePicker:
         self.open()
 
     def close(self):
+        self._cancel_slide()
         if self.win is not None:
             try:
                 self.win.destroy()
             except tk.TclError:
                 pass
             self.win = None
+        self._pages = []
 
     def _current(self):
         raw = ""
@@ -527,9 +730,9 @@ class DatePicker:
         self.win.wm_geometry(f"+{x}+{y}")
         self._body = tk.Frame(self.win, bg=BG, padx=8, pady=8)
         self._body.pack(padx=1, pady=1)
-        self._render(cur)
+        self._build_chrome()
+        self._show_month(self._year, self._month, animate=False)
         self.win.bind("<FocusOut>", lambda _e: self.close())
-        # 日历自己吃掉 Esc：否则按键会冒到根窗口，直接把整个程序关掉。
         self.win.bind("<Escape>", self._on_escape)
         self.win.focus_set()
 
@@ -537,39 +740,153 @@ class DatePicker:
         self.close()
         return "break"
 
-    def _render(self, selected):
-        for w in self._body.winfo_children():
-            w.destroy()
+    def _cell_size(self):
+        try:
+            fnt = tkfont.Font(font=self.font)
+            cw = max(28, fnt.measure("00") + 12)
+            ch = max(22, fnt.metrics("linespace") + 8)
+        except (tk.TclError, TypeError, ValueError):
+            cw, ch = 30, 24
+        return cw, ch
+
+    def _build_chrome(self):
+        cw, ch = self._cell_size()
+        self._stage_w = cw * 7
+        self._stage_h = ch * 6
         head = tk.Frame(self._body, bg=BG)
         head.pack(fill="x")
-        tk.Button(head, text="‹", bd=0, bg=BG, fg=TEXT, font=self.font,
-                  command=lambda: self._shift(-1), cursor="hand2").pack(side="left")
-        tk.Label(head, text=f"{self._year}-{self._month:02d}", bg=BG, fg=TEXT,
-                 font=self.font).pack(side="left", expand=True)
-        tk.Button(head, text="›", bd=0, bg=BG, fg=TEXT, font=self.font,
-                  command=lambda: self._shift(1), cursor="hand2").pack(side="right")
-        grid = tk.Frame(self._body, bg=BG)
-        grid.pack(pady=(6, 0))
+        CapsuleButton(head, text="‹", width=28, height=28, font=self.font,
+                      command=lambda: self._shift(-1)).pack(side="left")
+        self._title_stage = tk.Frame(head, bg=BG, width=self._stage_w - 64, height=28)
+        self._title_stage.pack(side="left", expand=True, fill="both")
+        self._title_stage.pack_propagate(False)
+        CapsuleButton(head, text="›", width=28, height=28, font=self.font,
+                      command=lambda: self._shift(1)).pack(side="right")
+        days = tk.Frame(self._body, bg=BG)
+        days.pack(pady=(6, 0))
         for i, name in enumerate("一二三四五六日"):
-            tk.Label(grid, text=name, bg=BG, fg=MUTED, font=self.font, width=3).grid(row=0, column=i)
-        weeks = calendar.Calendar(0).monthdayscalendar(self._year, self._month)
+            tk.Label(days, text=name, bg=BG, fg=MUTED, font=self.font,
+                     width=3).grid(row=0, column=i)
+        self._stage = tk.Frame(self._body, bg=BG, width=self._stage_w,
+                               height=self._stage_h)
+        self._stage.pack()
+        self._stage.pack_propagate(False)
+
+    def _make_grid(self, year, month):
+        cw, ch = self._cell_size()
+        grid = tk.Frame(self._stage, bg=BG, width=self._stage_w, height=self._stage_h)
+        selected = self._current()
         today = dt.date.today()
-        for r, week in enumerate(weeks, 1):
+        weeks = calendar.Calendar(0).monthdayscalendar(year, month)
+        while len(weeks) < 6:
+            weeks.append([0] * 7)
+        for r, week in enumerate(weeks[:6]):
             for c, day in enumerate(week):
+                cell = tk.Label(grid, text="" if day == 0 else str(day),
+                                bg=BG, fg=TEXT, font=self.font, width=3)
+                cell.grid(row=r, column=c, padx=1, pady=1, ipady=1)
                 if day == 0:
-                    tk.Label(grid, text="", bg=BG, width=3).grid(row=r, column=c)
                     continue
-                d = dt.date(self._year, self._month, day)
-                bg, fg = BG, TEXT
+                d = dt.date(year, month, day)
                 if d == selected:
-                    # 选中日原来也是羊皮纸字压薄荷（1.97:1），跟主按钮一处毛病
-                    bg, fg = MINT, ON_MINT
+                    cell.configure(bg=MINT, fg=ON_MINT, cursor="hand2")
                 elif d == today:
-                    bg = MINT_BG
-                btn = tk.Label(grid, text=str(day), bg=bg, fg=fg, font=self.font,
-                               width=3, cursor="hand2")
-                btn.grid(row=r, column=c, padx=1, pady=1)
-                btn.bind("<Button-1>", lambda _e, dd=d: self._pick(dd))
+                    cell.configure(bg=MINT_BG, fg=TEXT, cursor="hand2")
+                else:
+                    cell.configure(cursor="hand2")
+                cell._rest_bg = cell.cget("bg")
+                cell._rest_fg = cell.cget("fg")
+                if d != selected:
+                    def _enter(e, w=cell):
+                        if w.cget("bg") != MINT:
+                            w.configure(bg=SAND)
+                    def _leave(e, w=cell):
+                        w.configure(bg=w._rest_bg, fg=w._rest_fg)
+                    cell.bind("<Enter>", _enter)
+                    cell.bind("<Leave>", _leave)
+                cell.bind("<Button-1>", lambda _e, dd=d: self._pick(dd))
+        return grid
+
+    def _make_title(self, year, month):
+        return tk.Label(self._title_stage, text=f"{year}-{month:02d}",
+                        bg=BG, fg=TEXT, font=self.font)
+
+    def _cancel_slide(self):
+        if self._slide_job is not None:
+            try:
+                if self.win is not None:
+                    self.win.after_cancel(self._slide_job)
+            except (tk.TclError, ValueError):
+                pass
+            self._slide_job = None
+
+    def _clear_pages(self, keep=None):
+        kept = []
+        for item in self._pages:
+            if keep is not None and item is keep:
+                kept.append(item)
+                continue
+            for part in (item.get("grid"), item.get("title")):
+                try:
+                    part.destroy()
+                except (tk.TclError, AttributeError):
+                    pass
+        self._pages = kept
+
+    def _place_page(self, page, x):
+        page["grid"].place(x=int(x), y=0, width=self._stage_w, height=self._stage_h)
+        tw = int(self._title_stage.winfo_width() or (self._stage_w - 64))
+        page["title"].place(x=int(x * tw / max(1, self._stage_w)), y=0,
+                            width=tw, height=28)
+        page["x"] = x
+
+    def _show_month(self, year, month, animate=False, direction=1):
+        if self.win is None:
+            return
+        incoming = {
+            "grid": self._make_grid(year, month),
+            "title": self._make_title(year, month),
+            "x": 0,
+        }
+        if not animate or prefers_reduced_motion() or not self._pages:
+            self._cancel_slide()
+            self._clear_pages()
+            self._pages = [incoming]
+            self._title_stage.update_idletasks()
+            self._place_page(incoming, 0)
+            return
+        outgoing = self._pages[-1]
+        self._cancel_slide()
+        # 打断：丢掉更早的页，从当前偏移继续滑向新的一个月。
+        self._clear_pages(keep=outgoing)
+        start = outgoing.get("x", 0)
+        incoming_start = start + direction * self._stage_w
+        self._place_page(incoming, incoming_start)
+        self._pages = [outgoing, incoming]
+        t0 = time.perf_counter()
+        dur = self._SLIDE_MS / 1000.0
+
+        def tick():
+            if self.win is None:
+                return
+            t = (time.perf_counter() - t0) / dur
+            p = ease_out(t)
+            if t >= 1:
+                self._place_page(incoming, 0)
+                self._clear_pages(keep=incoming)
+                self._pages = [incoming]
+                self._slide_job = None
+                return
+            out_x = start + (-direction * self._stage_w - start) * p
+            in_x = incoming_start + (0 - incoming_start) * p
+            self._place_page(outgoing, out_x)
+            self._place_page(incoming, in_x)
+            try:
+                self._slide_job = self.win.after(8, tick)
+            except tk.TclError:
+                self._slide_job = None
+
+        tick()
 
     def _shift(self, delta):
         m = self._month + delta
@@ -581,7 +898,7 @@ class DatePicker:
             m -= 12
             y += 1
         self._year, self._month = y, m
-        self._render(self._current())
+        self._show_month(y, m, animate=True, direction=1 if delta > 0 else -1)
 
     def _pick(self, day):
         try:
