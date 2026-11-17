@@ -17,7 +17,14 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from common import APP_NAME, EXE_NAME, VERSION, app_dir, is_frozen
-from ui_kit import Tooltip, apply_icon, center, fonts
+from ui_kit import (
+    BG, ERR, MUTED, Tooltip, apply_icon, apply_island_style,
+    center, fonts, CapsuleButton, IslandEntry,
+)
+
+# 成功态沿用软件里已有的绿色，不另造新色。
+GREEN = "#1a7f37"
+INSTALL_W, INSTALL_H = 600, 228
 
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\WeChatFavExport"
 
@@ -202,30 +209,35 @@ class SetupUI:
         root.title(f"安装 {APP_NAME} V{VERSION}")
         root.resizable(False, False)
         apply_icon(root)
-        center(root, 600, 196)
-        ttk.Style().configure("Accent.TButton", font=(family, 10, "bold"))
+        apply_island_style(root)
+        try:
+            root.configure(bg=BG)
+        except Exception:
+            pass
+        center(root, INSTALL_W, INSTALL_H)
 
-        f = ttk.Frame(root, padding=(20, 16))
+        f = tk.Frame(root, bg=BG, padx=20, pady=16)
         f.pack(fill="both", expand=True)
         f.columnconfigure(1, weight=1)
 
-        ttk.Label(f, text="安装位置", font=font_main).grid(
+        tk.Label(f, text="安装位置", font=font_main, bg=BG, fg=MUTED).grid(
             row=0, column=0, sticky="w", pady=(2, 14))
-        self.dest = ttk.Entry(f, font=font_main)
-        self.dest.grid(row=0, column=1, sticky="ew", padx=12, pady=(2, 14))
+        self.dest = IslandEntry(f, font=font_main)
+        self.dest.grid(row=0, column=1, sticky="ew", padx=(12, 8), pady=(2, 14))
         self.dest.insert(0, preset or default_dir())
-        ttk.Button(f, text="浏览…", width=9, command=self.pick).grid(
-            row=0, column=2, pady=(2, 14))
+        CapsuleButton(f, text="浏览…", width=84, height=36, font=font_small,
+                      command=self.pick).grid(row=0, column=2, pady=(2, 14))
 
-        self.btn = ttk.Button(f, text="安装", style="Accent.TButton", command=self.go)
-        self.btn.grid(row=1, column=0, columnspan=3, sticky="ew", ipady=5)
-        self.state = ttk.Label(f, text="", font=font_small, foreground="#666666",
-                               anchor="w", wraplength=470)
+        self.btn = CapsuleButton(f, text="安装", command=self.go, primary=True,
+                                 height=42, font=(family, 11, "bold"))
+        self.btn.grid(row=1, column=0, columnspan=3, sticky="ew")
+        self.state = tk.Label(f, text="", font=font_small, fg=MUTED, bg=BG,
+                              anchor="w", wraplength=470, justify="left")
         self.state.grid(row=2, column=0, columnspan=3, sticky="w", pady=(14, 0))
         Tooltip(self.state, lambda: self.full_state, font=font_small)
         root.bind("<Return>", lambda _e: self.go())
 
-    def set_state(self, text, color="#666666"):
+    def set_state(self, text, color=MUTED):
         self.full_state = text
         self.state.configure(text=text if len(text) <= 76 else text[:73] + "…",
                              foreground=color)
@@ -252,7 +264,7 @@ class SetupUI:
 
     def done(self, ok, msg):
         self.busy = False
-        self.set_state(msg, "#1a7f37" if ok else "#b42318")
+        self.set_state(msg, GREEN if ok else ERR)
         self.btn.configure(text="完成", state="normal", command=self.root.destroy)
 
 
