@@ -733,6 +733,7 @@ class DatePicker:
         self._body = tk.Frame(self.win, bg=BG, padx=8, pady=8)
         self._body.pack(padx=1, pady=1)
         self._build_chrome()
+        self.win.update_idletasks()
         self._show_month(self._year, self._month, animate=False)
         self.win.bind("<FocusOut>", lambda _e: self.close())
         self.win.bind("<Escape>", self._on_escape)
@@ -838,7 +839,9 @@ class DatePicker:
 
     def _place_page(self, page, x):
         page["grid"].place(x=int(x), y=0, width=self._stage_w, height=self._stage_h)
-        tw = int(self._title_stage.winfo_width() or (self._stage_w - 64))
+        tw = int(self._title_stage.winfo_width())
+        if tw <= 1:
+            tw = self._stage_w - 64
         page["title"].place(x=int(x * tw / max(1, self._stage_w)), y=0,
                             width=tw, height=28)
         page["x"] = x
