@@ -355,25 +355,27 @@ class CapsuleButton(tk.Canvas):
             if press:
                 fill = _lerp_color(fill, "#14b3a5", press)
             fg, border = ON_MINT, fill
-            shadow = _lerp_color("#8fd9d1", "#6fbdb5", lift)
+            # 中性暖灰影，避免薄荷影和浅填充叠在一起看不清抬起。
+            shadow = _lerp_color("#c9bfb0", "#9e9282", lift)
         else:
             fill = _lerp_color(SAND, "#f7f1e6", lift)
             if press:
                 fill = _lerp_color(fill, "#e8dfcf", press)
             fg, border = TEXT, BORDER
-            shadow = "#d4cbbd"
+            shadow = "#b8aea0"
 
-        # 在同一高度里做抬起/按下，避免阴影被画布裁掉。
-        shift_y = -2.0 * lift + 1.0 * press
-        scale = 1.0 - 0.03 * press
-        x1, y1, x2, y2 = 1.0, 3.0 + shift_y, w - 1.0, h - 3.0 + shift_y
+        # 预留上下空位：悬停抬起约 4px，阴影落到按钮下面。
+        pad_top, pad_bot = 5.0, 7.0
+        shift_y = -4.0 * lift + 2.0 * press
+        scale = 1.0 - 0.05 * press
+        x1, y1, x2, y2 = 1.0, pad_top + shift_y, w - 1.0, h - pad_bot + shift_y
         if scale < 0.999:
             cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
             bw, bh = (x2 - x1) * scale, (y2 - y1) * scale
             x1, x2 = cx - bw / 2.0, cx + bw / 2.0
             y1, y2 = cy - bh / 2.0, cy + bh / 2.0
         r = max(2.0, (y2 - y1) / 2.0)
-        shadow_dy = (2.0 + 2.0 * lift) * (1.0 - press) if self._primary else (3.0 * lift * (1.0 - press))
+        shadow_dy = (3.0 + 4.0 * lift) * (1.0 - press) if self._primary else (5.0 * lift * (1.0 - press))
         if shadow and shadow_dy > 0.4 and not disabled:
             _round_rect(self, x1, y1 + shadow_dy, x2, y2 + shadow_dy, r,
                         fill=shadow, outline="")
@@ -382,7 +384,8 @@ class CapsuleButton(tk.Canvas):
             _round_rect(self, x1, y1, x2, y2, r, fill=fill, outline=border)
         self.create_text((x1 + x2) / 2.0, (y1 + y2) / 2.0, text=self._text,
                          fill=fg, font=self._font)
-        if self._focus and not disabled:
+        # 焦点环只给键盘，避免鼠标按下时被深色描边抢走「按下收回」的观感。
+        if self._focus and not disabled and press < 0.2:
             _round_rect(self, x1 + 1, y1 + 1, x2 - 1, y2 - 1, max(1.0, r - 1),
                         fill="", outline=TEXT, width=2)
 
@@ -432,7 +435,6 @@ class CapsuleButton(tk.Canvas):
     def _on_press(self, _e=None):
         if self._state == "disabled":
             return
-        self.focus_set()
         self._press_to = 1.0
         self._lift_to = 0.0
         self._retarget(self._PRESS_MS)
@@ -752,7 +754,8 @@ class DatePicker:
     def _build_chrome(self):
         cw, ch = self._cell_size()
         self._stage_w = cw * 7
-        self._stage_h = ch * 6
+        # 日期格有 pady=1、ipady=1，6 行要加上这些间距，避免最后一周被裁切。
+        self._stage_h = ch * 6 + 4 * 6
         head = tk.Frame(self._body, bg=BG)
         head.pack(fill="x")
         CapsuleButton(head, text="‹", width=28, height=28, font=self.font,
