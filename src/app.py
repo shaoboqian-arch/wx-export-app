@@ -18,28 +18,112 @@ import os
 import sys
 
 import engine
-from common import VERSION
+from common import APP_NAME, VERSION
+
+
+def _parent_pid(pid):
+    if os.name != "nt":
+        return 0
+
+    class PENTRY(ctypes.Structure):
+        _fields_ = [("dwSize", ctypes.c_ulong), ("cntUsage", ctypes.c_ulong),
+                    ("th32ProcessID", ctypes.c_ulong),
+                    ("th32DefaultHeap", ctypes.c_void_p),
+                    ("th32ModuleID", ctypes.c_ulong), ("cntThreads", ctypes.c_ulong),
+                    ("th32ParentProcessID", ctypes.c_ulong),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", ctypes.c_ulong),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.windll.kernel32
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)
+    if snap in (-1, 0):
+        return 0
+    try:
+        e = PENTRY()
+        e.dwSize = ctypes.sizeof(PENTRY)
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            if e.th32ProcessID == pid:
+                return e.th32ParentProcessID
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+        return 0
+    finally:
+        try:
+            k32.CloseHandle(snap)
+        except Exception:
+            pass
+
+
+def _process_image(pid):
+    if os.name != "nt" or not pid:
+        return ""
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x1000, False, pid)
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = ctypes.c_ulong(len(buf))
+        if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return buf.value
+        return ""
+    finally:
+        try:
+            k32.CloseHandle(h)
+        except Exception:
+            pass
+
+
+def _console_is_ours(console_pids, my_pid, my_exe, parent_pid, parent_exe):
+    pids = {p for p in (console_pids or ()) if p}
+    if not pids:
+        return False
+    allowed = {my_pid}
+    if (parent_pid and parent_pid not in allowed and parent_exe
+            and my_exe
+            and os.path.normcase(parent_exe) == os.path.normcase(my_exe)):
+        allowed.add(parent_pid)
+    return pids <= allowed
 
 
 def hide_console():
-    """隐藏本进程的控制台窗口。
-
-    只在控制台被本进程**独占**时才隐藏：从已有终端手动启动时（--mcp 调试、
-    终端里跑 GUI），控制台是与父终端共享的，隐藏它等于把用户的终端藏掉。
-    GetConsoleProcessList 返回挂在该控制台上的进程数，独占时为 1。
-    """
+    """隐藏本进程的控制台窗口（兼顾单文件双进程，且不误藏共享终端）。"""
     if os.name != "nt":
         return
     try:
-        h = ctypes.windll.kernel32.GetConsoleWindow()
+        k32 = ctypes.windll.kernel32
+        h = k32.GetConsoleWindow()
         if not h:
             return
-        buf = (ctypes.c_uint * 8)()
-        n = ctypes.windll.kernel32.GetConsoleProcessList(buf, 8)
+        buf = (ctypes.c_uint * 64)()
+        n = k32.GetConsoleProcessList(buf, 64)
+        if n > 64:
+            return
         if n <= 1:
+            ctypes.windll.user32.ShowWindow(h, 0)
+            return
+        me = k32.GetCurrentProcessId()
+        parent = _parent_pid(me)
+        if _console_is_ours(list(buf[:n]), me, sys.executable,
+                            parent, _process_image(parent)):
             ctypes.windll.user32.ShowWindow(h, 0)
     except Exception:
         pass
+
+
+def _raise_existing(title):
+    if os.name != "nt":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, title)
+        if not hwnd:
+            return False
+        user32.ShowWindow(hwnd, 9)               # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
 
 
 _SINGLE_INSTANCE_MUTEX = "Local\\wx-fav-export-gui-singleton"
@@ -203,6 +287,7 @@ def main():
     # 主界面单实例：重复启动不再开第二个窗口，弹海岛风格提示（--setup 安装向导不受限，
     # 升级流程需要能在应用运行时再次拉起安装器）。
     if not acquire_gui_mutex():
+        _raise_existing(f"{APP_NAME}  {VERSION}")
         import gui
         gui.show_already_running()
         return 0

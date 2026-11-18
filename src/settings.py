@@ -14,7 +14,7 @@ import engine
 import mcp_config
 from common import APP_NAME, VERSION
 from ui_kit import (
-    BG, BORDER, ERR, MUTED, PAPER, SAND, TEXT, WHITE, OK, NEUTRAL, WARN,
+    BG, BORDER, CARD, CARD_LINE, ERR, MUTED, PAPER, SAND, SURFACE, TEXT, WHITE, OK, NEUTRAL, WARN,
     CapsuleButton, IslandEntry, Tooltip, _round_rect,
     apply_icon, apply_island_style, center, fonts,
 )
@@ -33,36 +33,43 @@ def _mono(root):
     return (fam, 9)
 
 
-def _section_title(parent, text, font, row, columnspan=3, pady=(0, 10)):
-    box = tk.Frame(parent, bg=BG)
-    box.grid(row=row, column=0, columnspan=columnspan, sticky="ew", pady=pady)
-    tk.Label(box, text=text, font=font, bg=BG, fg=TEXT, anchor="w").pack(anchor="w")
-    tk.Frame(box, bg=BORDER, height=1).pack(fill="x", pady=(6, 0))
-    return box
+def _card(parent, title, font, row, pady=(0, 0)):
+    outer = tk.Frame(parent, bg=CARD, highlightbackground=CARD_LINE, highlightthickness=1)
+    outer.grid(row=row, column=0, sticky="ew", pady=pady)
+    outer.columnconfigure(0, weight=1)
+    inner = tk.Frame(outer, bg=CARD, padx=18, pady=12)
+    inner.grid(row=0, column=0, sticky="ew")
+    inner.columnconfigure(0, weight=1)
+    tk.Label(inner, text=title, font=(font[0], 11, "bold"), bg=CARD, fg=TEXT, anchor="w").pack(
+        anchor="w", pady=(0, 6))
+    tk.Frame(inner, bg=CARD_LINE, height=1).pack(fill="x", pady=(0, 10))
+    body = tk.Frame(inner, bg=CARD)
+    body.pack(fill="both", expand=True)
+    return body
 
 
 class IslandCodeWell(tk.Frame):
-    """圆角代码井：PAPER 底、浅边，给只读配置片段用。"""
+    """圆角代码井：SURFACE 底、浅边，给只读配置片段用。"""
 
-    def __init__(self, master, height=8, font=None):
-        super().__init__(master, bg=BG, highlightthickness=0)
+    def __init__(self, master, height=7, font=None, bg=CARD):
+        super().__init__(master, bg=bg, highlightthickness=0)
         try:
             line = tkfont.Font(font=font).metrics("linespace") if font else 16
         except (tk.TclError, TypeError, ValueError):
             line = 16
-        self.configure(width=400, height=line * height + 22)
+        self.configure(width=400, height=line * height + 20)
         self.pack_propagate(False)
         self.grid_propagate(False)
-        self._canvas = tk.Canvas(self, highlightthickness=0, bd=0, bg=BG)
+        self._canvas = tk.Canvas(self, highlightthickness=0, bd=0, bg=bg)
         self._canvas.place(x=0, y=0, relwidth=1, relheight=1)
-        inner = tk.Frame(self, bg=PAPER)
+        inner = tk.Frame(self, bg=SURFACE)
         inner.place(x=10, y=8, relwidth=1, relheight=1, width=-22, height=-16)
         inner.columnconfigure(0, weight=1)
         inner.rowconfigure(0, weight=1)
         self.text = tk.Text(
             inner, height=height, font=font or ("Consolas", 9),
             relief="flat", borderwidth=0, highlightthickness=0, wrap="none",
-            bg=PAPER, fg=TEXT, insertbackground=TEXT,
+            bg=SURFACE, fg=TEXT, insertbackground=TEXT,
             selectbackground=SAND, selectforeground=TEXT, padx=2, pady=2)
         self.text.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(inner, orient="vertical", command=self.text.yview)
@@ -78,7 +85,7 @@ class IslandCodeWell(tk.Frame):
         w, h = int(c.winfo_width()), int(c.winfo_height())
         if w < 8 or h < 8:
             return
-        _round_rect(c, 1, 1, w - 1, h - 1, 12, fill=PAPER, outline=BORDER)
+        _round_rect(c, 1, 1, w - 1, h - 1, 8.0, fill=SURFACE, outline=BORDER)
 
 
 class SettingsUI:
@@ -98,80 +105,77 @@ class SettingsUI:
         if isinstance(win, tk.Toplevel):
             win.transient(win.master)
 
-        f = tk.Frame(win, bg=BG, padx=20, pady=16)
+        f = tk.Frame(win, bg=BG, padx=20, pady=14)
         f.pack(fill="both", expand=True)
         f.columnconfigure(0, weight=1)
 
         # ---------------- MCP 接入 ----------------
-        mcp = tk.Frame(f, bg=BG)
-        mcp.grid(row=0, column=0, sticky="ew")
+        mcp = _card(f, "MCP 接入", font_main, row=0)
         mcp.columnconfigure(1, weight=1)
-        _section_title(mcp, "MCP 接入", font_main, row=0, pady=(0, 10))
 
-        tk.Label(mcp, text="程序路径", font=font_small, bg=BG, fg=MUTED).grid(
-            row=1, column=0, sticky="w", pady=(0, 8), padx=(0, 12))
+        tk.Label(mcp, text="程序路径", font=font_small, bg=CARD, fg=MUTED).grid(
+            row=0, column=0, sticky="w", pady=(0, 8), padx=(0, 12))
         cmd, _args = mcp_config.current_command()
-        path = IslandEntry(mcp, font=font_small, readonlybackground=WHITE)
+        path = IslandEntry(mcp, font=font_small, path=True, path_font=font_small,
+                           panel_bg=CARD, readonlybackground=WHITE)
         path.insert(0, cmd)
         path.entry.configure(state="readonly")
-        path.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(0, 8))
+        path.grid(row=0, column=1, columnspan=2, sticky="ew", pady=(0, 8))
 
-        tk.Label(mcp, text="配置片段", font=font_small, bg=BG, fg=MUTED).grid(
-            row=2, column=0, sticky="nw", pady=(6, 0), padx=(0, 12))
-        well = IslandCodeWell(mcp, height=8, font=_mono(win))
-        well.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(4, 10))
+        tk.Label(mcp, text="配置片段", font=font_small, bg=CARD, fg=MUTED).grid(
+            row=1, column=0, sticky="nw", pady=(6, 0), padx=(0, 12))
+        well = IslandCodeWell(mcp, height=7, font=_mono(win), bg=CARD)
+        well.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(2, 10))
         self.preview = well.text
         self.preview.insert("1.0", mcp_config.fragment_text())
         self.preview.configure(state="disabled")
 
-        btns = tk.Frame(mcp, bg=BG)
-        btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(2, 8))
-        self.btn_copy = CapsuleButton(btns, text="复制配置", width=100, height=36,
-                                      font=font_small, command=self.copy_config)
+        btns = tk.Frame(mcp, bg=CARD)
+        btns.grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        self.btn_copy = CapsuleButton(btns, text="复制配置", width=100, height=34,
+                                      font=font_small, bg=CARD, command=self.copy_config)
         self.btn_copy.pack(side="left")
-        self.btn_write = CapsuleButton(btns, text="写入配置", width=100, height=36,
-                                       font=font_small, primary=True,
+        self.btn_write = CapsuleButton(btns, text="写入配置", width=100, height=34,
+                                       font=font_small, primary=True, bg=CARD,
                                        command=self.write_config)
         self.btn_write.pack(side="left", padx=(8, 0))
-        self.btn_conn = CapsuleButton(btns, text="测试连接", width=100, height=36,
-                                      font=font_small, command=self.test_conn)
+        self.btn_conn = CapsuleButton(btns, text="测试连接", width=100, height=34,
+                                      font=font_small, bg=CARD, command=self.test_conn)
         self.btn_conn.pack(side="left", padx=(8, 0))
-        self.cfg_state = tk.Label(mcp, text="", font=font_small, fg=MUTED, bg=BG,
-                                  wraplength=560, anchor="w", justify="left")
-        self.cfg_state.grid(row=4, column=0, columnspan=3, sticky="w")
+        self.cfg_state = tk.Label(mcp, text="", font=font_small, fg=MUTED, bg=CARD,
+                                  wraplength=520, anchor="w", justify="left")
+        self.cfg_state.grid(row=3, column=0, columnspan=3, sticky="w")
         tk.Label(mcp,
                  text="写入只增改本服务条目，不覆盖已有连接器；保存后需在连接器管理页点「信任」",
-                 font=font_small, fg=MUTED, bg=BG, wraplength=560,
+                 font=font_small, fg=MUTED, bg=CARD, wraplength=520,
                  anchor="w", justify="left").grid(
-            row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+            row=4, column=0, columnspan=3, sticky="w", pady=(3, 0))
 
         # ---------------- 环境 ----------------
-        env = tk.Frame(f, bg=BG)
-        env.grid(row=1, column=0, sticky="ew", pady=(22, 0))
+        env = _card(f, "环境", font_main, row=1, pady=(12, 0))
         env.columnconfigure(1, weight=1)
-        _section_title(env, "环境", font_main, row=0, columnspan=2, pady=(0, 10))
         self.env_labels = {}
         for i, (key, name) in enumerate((
                 ("account_root", "账号目录"), ("db_keys", "数据库密钥"),
                 ("image_key", "图片密钥"), ("ready", "状态"))):
-            tk.Label(env, text=name, font=font_small, bg=BG, fg=MUTED, width=12,
-                     anchor="w").grid(row=i + 1, column=0, sticky="w", pady=3)
-            v = tk.Label(env, text="检查中…", font=font_small, fg=MUTED, bg=BG,
-                         anchor="w", wraplength=440, justify="left")
-            v.grid(row=i + 1, column=1, sticky="w", pady=3)
+            tk.Label(env, text=name, font=font_small, bg=CARD, fg=MUTED, width=12,
+                     anchor="w").grid(row=i, column=0, sticky="w", pady=2)
+            v = tk.Label(env, text="检查中…", font=font_small, fg=MUTED, bg=CARD,
+                         anchor="w", wraplength=410, justify="left")
+            v.grid(row=i, column=1, sticky="w", pady=2)
             self.env_labels[key] = v
-        r = tk.Frame(env, bg=BG)
-        r.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self.env_state = tk.Label(r, text="", font=font_small, fg=MUTED, bg=BG,
-                                  wraplength=430, anchor="w", justify="left")
+        r = tk.Frame(env, bg=CARD)
+        r.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.env_state = tk.Label(r, text="", font=font_small, fg=MUTED, bg=CARD,
+                                  wraplength=400, anchor="w", justify="left")
         self.env_state.pack(side="left", fill="x", expand=True)
-        self.btn_refresh = CapsuleButton(r, text="刷新", width=84, height=36,
-                                         font=font_small, command=self.refresh_env)
+        self.btn_refresh = CapsuleButton(r, text="刷新", width=84, height=34,
+                                         font=font_small, bg=CARD, command=self.refresh_env)
         self.btn_refresh.pack(side="right")
 
         # ---------------- 底部 ----------------
         bottom = tk.Frame(f, bg=BG)
-        bottom.grid(row=2, column=0, sticky="ew", pady=(18, 0))
+        bottom.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         bottom.columnconfigure(0, weight=1)
         self.state = tk.Label(bottom, text="", font=font_small, fg=MUTED, bg=BG,
                               anchor="w", wraplength=470, justify="left")
@@ -180,6 +184,7 @@ class SettingsUI:
                                        font=font_small, command=win.destroy)
         self.close_btn.grid(row=0, column=1)
         Tooltip(self.state, lambda: self.full_state, font=font_small)
+        win.after_idle(path.reveal_end)
 
         self._after_id = win.after(80, self.poll)
         win.bind("<Destroy>", self._on_destroy, add="+")

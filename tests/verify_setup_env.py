@@ -33,15 +33,20 @@ def check(name, ok, detail=""):
 
 
 def shot(win, name):
+    import ctypes
     from PIL import ImageGrab
     win.attributes("-topmost", True)
     win.lift()
     win.update()
-    time.sleep(0.35)
+    time.sleep(0.3)
     win.update()
-    x, y = win.winfo_rootx(), win.winfo_rooty()
+    hwnd = ctypes.windll.user32.GetParent(win.winfo_id()) or win.winfo_id()
     w, h = win.winfo_width(), win.winfo_height()
-    img = ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
+    try:
+        img = ImageGrab.grab(window=hwnd)
+    except Exception:
+        x, y = win.winfo_rootx(), win.winfo_rooty()
+        img = ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
     path = os.path.join(OUT, name)
     img.save(path)
     win.attributes("-topmost", False)

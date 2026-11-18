@@ -28,3 +28,6 @@ dist/*.zip
 
 # 公开净化门禁的本机敏感词名单，不进 Git
 tests/public_safe.local.txt
+
+# 本地项目结构说明（含本机路径）
+项目结构介绍.html

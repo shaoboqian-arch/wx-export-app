@@ -25,16 +25,21 @@ EnumWindowsProc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 user32.IsWindowVisible.argtypes = [wt.HWND]
 user32.GetWindowTextLengthW.argtypes = [wt.HWND]
 user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
 user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
 user32.SetForegroundWindow.argtypes = [wt.HWND]
 
 
 def all_windows():
-    """PyInstaller onefile 会派生子进程，窗口不属于父进程 pid，故按标题定位。"""
+    """PyInstaller onefile 会派生子进程，窗口不属于父进程 pid，故按标题+TkTopLevel定位。"""
     found = []
 
     def cb(hwnd, _):
         if not user32.IsWindowVisible(hwnd):
+            return True
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value != "TkTopLevel":
             return True
         n = user32.GetWindowTextLengthW(hwnd)
         if n <= 0:
@@ -90,7 +95,10 @@ def main():
         time.sleep(0.5)
         try:
             from PIL import ImageGrab
-            img = ImageGrab.grab(bbox=rect, all_screens=True)
+            try:
+                img = ImageGrab.grab(window=hwnd)
+            except Exception:
+                img = ImageGrab.grab(bbox=rect, all_screens=True)
             path = os.path.join(OUT, shot)
             img.save(path)
             print(f"PASS 截图     : {path}  ({img.width}x{img.height})")

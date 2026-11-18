@@ -124,16 +124,26 @@ def window_case():
     check("配置状态已刷新", bool(ui.cfg_state.cget("text")), ui.cfg_state.cget("text"))
     check("环境状态已刷新", ui.env_state.cget("text") not in ("", "检查中…"),
           ui.env_state.cget("text"))
-    time.sleep(0.45)
-    hits = [w for w in all_windows() if "设置" in w[1] and "微信收藏导出" in w[1]]
-    if hits:
+    time.sleep(0.35)
+    try:
+        import ctypes
         from PIL import ImageGrab
-        img = ImageGrab.grab(bbox=hits[0][2], all_screens=True)
+        root.lift()
+        root.attributes("-topmost", True)
+        root.update()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+        try:
+            img = ImageGrab.grab(window=hwnd)
+        except Exception:
+            x, y = root.winfo_rootx(), root.winfo_rooty()
+            img = ImageGrab.grab(bbox=(x, y, x + root.winfo_width(),
+                                       y + root.winfo_height()), all_screens=True)
+        root.attributes("-topmost", False)
         p = os.path.join(OUT, f"设置页-{ROUND}.png")
         img.save(p)
         check("设置页截图", True, f"{img.width}x{img.height} {os.path.basename(p)}")
-    else:
-        check("设置页截图找到窗口", False)
+    except Exception as e:
+        check("设置页截图找到窗口", False, str(e))
     root.destroy()
 
 

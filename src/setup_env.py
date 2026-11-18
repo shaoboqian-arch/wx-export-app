@@ -16,13 +16,27 @@ from tkinter import filedialog, ttk
 import engine
 from common import APP_NAME, VERSION
 from ui_kit import (
-    BG, TEXT, MUTED, ERR, BORDER, OK, NEUTRAL, WARN,
+    BG, TEXT, MUTED, ERR, BORDER, CARD, CARD_LINE, OK, NEUTRAL, WARN,
     Tooltip, apply_icon, apply_island_style,
     center, fonts, CapsuleButton, IslandEntry,
 )
 
 W, H = 640, 350
 
+
+def _card(parent, title, font, row, pady=(0, 0)):
+    outer = tk.Frame(parent, bg=CARD, highlightbackground=CARD_LINE, highlightthickness=1)
+    outer.grid(row=row, column=0, sticky="ew", pady=pady)
+    outer.columnconfigure(0, weight=1)
+    inner = tk.Frame(outer, bg=CARD, padx=16, pady=12)
+    inner.grid(row=0, column=0, sticky="ew")
+    inner.columnconfigure(0, weight=1)
+    tk.Label(inner, text=title, font=(font[0], 10, "bold"), bg=CARD, fg=TEXT, anchor="w").pack(
+        anchor="w", pady=(0, 6))
+    tk.Frame(inner, bg=CARD_LINE, height=1).pack(fill="x", pady=(0, 8))
+    body = tk.Frame(inner, bg=CARD)
+    body.pack(fill="both", expand=True)
+    return body
 
 
 class SetupEnvUI:
@@ -48,70 +62,68 @@ class SetupEnvUI:
         if isinstance(win, tk.Toplevel):
             win.transient(win.master)
 
-        f = ttk.Frame(win, padding=(20, 16))
+        f = tk.Frame(win, bg=BG, padx=20, pady=14)
         f.pack(fill="both", expand=True)
         f.columnconfigure(0, weight=1)
 
         # ---------------- 账号目录 ----------------
-        acc = ttk.LabelFrame(f, text="微信账号", padding=(12, 10))
-        acc.grid(row=0, column=0, sticky="ew")
+        acc = _card(f, "微信账号", font_main, row=0)
         acc.columnconfigure(0, weight=1)
 
         self.combo = ttk.Combobox(acc, state="readonly", font=font_small)
         self.combo.grid(row=0, column=0, sticky="ew")
         self.combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_status())
-        ttk.Button(acc, text="浏览…", width=8, command=self.pick).grid(
-            row=0, column=1, padx=(8, 0))
-        self.root_state = ttk.Label(acc, text="", font=font_small, foreground=NEUTRAL,
-                                    wraplength=520, anchor="w")
-        self.root_state.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        CapsuleButton(acc, text="浏览…", width=84, height=34, font=font_small,
+                      bg=CARD, command=self.pick).grid(row=0, column=1, padx=(8, 0))
+        self.root_state = tk.Label(acc, text="", font=font_small, bg=CARD, fg=NEUTRAL,
+                                   wraplength=540, anchor="w")
+        self.root_state.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         # ---------------- 密钥 ----------------
-        keys = ttk.LabelFrame(f, text="密钥", padding=(12, 10))
-        keys.grid(row=1, column=0, sticky="ew", pady=(14, 0))
+        keys = _card(f, "密钥", font_main, row=1, pady=(10, 0))
         keys.columnconfigure(1, weight=1)
 
-        ttk.Label(keys, text="数据库密钥", font=font_small, width=12).grid(
-            row=0, column=0, sticky="w", pady=2)
-        self.db_state = ttk.Label(keys, text="检查中…", font=font_small,
-                                  foreground=NEUTRAL, anchor="w")
+        tk.Label(keys, text="数据库密钥", font=font_small, bg=CARD, fg=MUTED, width=11,
+                 anchor="w").grid(row=0, column=0, sticky="w", pady=2)
+        self.db_state = tk.Label(keys, text="检查中…", font=font_small, bg=CARD,
+                                 fg=NEUTRAL, anchor="w")
         self.db_state.grid(row=0, column=1, sticky="w", pady=2)
         self.db_btn = CapsuleButton(keys, text="提取密钥", command=self.do_extract,
-                                    width=104, height=30, font=font_small, bg=BG)
+                                    width=100, height=32, font=font_small, bg=CARD)
         self.db_btn.grid(row=0, column=2, sticky="e", pady=2)
 
-        ttk.Label(keys, text="图片密钥", font=font_small, width=12).grid(
-            row=1, column=0, sticky="w", pady=(8, 2))
-        self.img_state = ttk.Label(keys, text="检查中…", font=font_small,
-                                   foreground=NEUTRAL, anchor="w")
-        self.img_state.grid(row=1, column=1, sticky="w", pady=(8, 2))
-        ib = ttk.Frame(keys)
-        ib.grid(row=1, column=2, sticky="e", pady=(8, 2))
+        tk.Label(keys, text="图片密钥", font=font_small, bg=CARD, fg=MUTED, width=11,
+                 anchor="w").grid(row=1, column=0, sticky="w", pady=(6, 2))
+        self.img_state = tk.Label(keys, text="检查中…", font=font_small, bg=CARD,
+                                  fg=NEUTRAL, anchor="w")
+        self.img_state.grid(row=1, column=1, sticky="w", pady=(6, 2))
+        ib = tk.Frame(keys, bg=CARD)
+        ib.grid(row=1, column=2, sticky="e", pady=(6, 2))
         self.img_btn = CapsuleButton(ib, text="开始检测", command=self.do_capture,
-                                     width=96, height=30, font=font_small, bg=BG)
+                                     width=92, height=32, font=font_small, bg=CARD)
         self.img_btn.pack(side="left")
         CapsuleButton(ib, text="手动填写", command=self.toggle_manual,
-                      width=94, height=30, font=font_small, bg=BG).pack(side="left", padx=(6, 0))
+                      width=90, height=32, font=font_small, bg=CARD).pack(side="left", padx=(6, 0))
 
-        self.manual = ttk.Frame(keys)
+        self.manual = tk.Frame(keys, bg=CARD)
         self.manual.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         self.manual.columnconfigure(0, weight=1)
         # 图片密钥是 16/32 位十六进制，明文回显等于肩窥即泄露；默认遮蔽，按需显形
-        self.manual_entry = IslandEntry(self.manual, font=font_small, show="*")
+        self.manual_entry = IslandEntry(self.manual, font=font_small, show="*", panel_bg=CARD)
         self.manual_entry.grid(row=0, column=0, sticky="ew")
         self.reveal_btn = CapsuleButton(self.manual, text="显示", command=self.toggle_reveal,
-                                        width=64, height=30, font=font_small, bg=BG)
+                                        width=64, height=32, font=font_small, bg=CARD)
         self.reveal_btn.grid(row=0, column=1, padx=(6, 0))
         CapsuleButton(self.manual, text="保存", command=self.save_manual,
-                      width=64, height=30, font=font_small, bg=BG).grid(row=0, column=2, padx=(6, 0))
+                      width=64, height=32, font=font_small, bg=CARD).grid(row=0, column=2, padx=(6, 0))
         self.manual.grid_remove()
 
         # ---------------- 底部 ----------------
-        bottom = ttk.Frame(f)
-        bottom.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        bottom = tk.Frame(f, bg=BG)
+        bottom.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         bottom.columnconfigure(0, weight=1)
-        self.state = ttk.Label(bottom, text="", font=font_small, foreground=NEUTRAL,
-                               anchor="w", wraplength=470, justify="left")
+        self.state = tk.Label(bottom, text="", font=font_small, bg=BG, fg=NEUTRAL,
+                              anchor="w", wraplength=470, justify="left")
         self.state.grid(row=0, column=0, sticky="w")
         self.close_btn = CapsuleButton(bottom, text="完成", command=self.close,
                                        width=84, height=34, primary=True, font=font_small, bg=BG)
@@ -245,9 +257,11 @@ class SetupEnvUI:
         self.manual_open = not self.manual_open
         if self.manual_open:
             self.manual.grid()
+            self.win.geometry(f"{W}x{H + 46}")
             self.set_state("粘贴或输入 16 位图片密钥，点「保存」")
         else:
             self.manual.grid_remove()
+            self.win.geometry(f"{W}x{H}")
 
     def save_manual(self):
         key = self.manual_entry.get().strip()

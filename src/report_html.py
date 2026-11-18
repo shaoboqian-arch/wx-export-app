@@ -49,10 +49,10 @@ BODY_KIND_ZH = {
 }
 
 CSS = """
-:root{--bg:#f8f8f0;--card:#fffef8;--line:#dcd8d1;--ink:#794f27;--muted:#6f6455;
-      --me:#e6f9f6;--me-line:#50b9ab;--other:#ffffff;--accent:#19c8b9;--on-mint:#3f2a12;
-      --mint-hi:#50b9ab;--sand:#f0e8d8;--warn:#b45309;--err:#b02a1f;--err-bg:#fdeeee;
-      --link:#794f27;--link-on-me:#794f27;--muted-on-me:#6f6455}
+:root{--bg:#f6f7f9;--card:#ffffff;--line:#d8dde6;--ink:#182026;--muted:#525d6b;
+      --me:#e6f4f2;--me-line:#0d6e66;--other:#ffffff;--accent:#0d6e66;--on-mint:#ffffff;
+      --mint-hi:#095952;--sand:#eef0f4;--warn:#9a4d00;--err:#b42318;--err-bg:#fef3f2;
+      --link:#0d6e66;--link-on-me:#095952;--muted-on-me:#525d6b}
 *{box-sizing:border-box}
 html{color-scheme:light}
 body{margin:0;background:var(--bg);color:var(--ink);

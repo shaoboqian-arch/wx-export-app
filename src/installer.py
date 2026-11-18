@@ -9,6 +9,7 @@ import base64
 import datetime as dt
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from common import APP_NAME, EXE_NAME, VERSION, app_dir, is_frozen
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 from ui_kit import (
     OK,
-    BG, ERR, MUTED, Tooltip, apply_icon, apply_island_style,
+    BG, CARD, CARD_LINE, ERR, MUTED, Tooltip, apply_icon, apply_island_style,
     center, fonts, CapsuleButton, IslandEntry,
 )
 
@@ -61,12 +62,38 @@ def start_menu_dir():
                         "Microsoft", "Windows", "Start Menu", "Programs")
 
 
+def _ps_quote(s):
+    """PowerShell 单引号字符串：内部单引号写成两个（避免路径含单引号破坏脚本）。"""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _read_lnk_target(lnk):
+    s = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut("
+         + _ps_quote(lnk) + ")\n"
+         "[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($s.TargetPath))\n")
+    rc, out = _ps(s)
+    if rc != 0 or not out:
+        return ""
+    try:
+        return base64.b64decode(out.strip()).decode("utf-8")
+    except (ValueError, UnicodeError):
+        return ""
+
+
+def shortcut_ready(lnk, exe):
+    if not os.path.isfile(lnk):
+        return False
+    target = _read_lnk_target(lnk)
+    return bool(target) and \
+        os.path.normcase(os.path.abspath(target)) == os.path.normcase(os.path.abspath(exe))
+
+
 def make_shortcut(lnk, target, workdir):
     s = ("$shell = New-Object -ComObject WScript.Shell\n"
-         f"$lnk = $shell.CreateShortcut('{lnk}')\n"
-         f"$lnk.TargetPath = '{target}'\n"
-         f"$lnk.WorkingDirectory = '{workdir}'\n"
-         f"$lnk.Description = '{APP_NAME}'\n"
+         f"$lnk = $shell.CreateShortcut({_ps_quote(lnk)})\n"
+         f"$lnk.TargetPath = {_ps_quote(target)}\n"
+         f"$lnk.WorkingDirectory = {_ps_quote(workdir)}\n"
+         f"$lnk.Description = {_ps_quote(APP_NAME)}\n"
          "$lnk.Save()\n")
     return _ps(s)[0] == 0
 
@@ -131,22 +158,29 @@ def install(dest, no_shortcut=False, progress=None):
             "图片密钥需先在微信里打开一张收藏图片，再点「开始检测」，也可手动填写 16 位密钥。\n\n"
             "日期区间起止均含当天。默认只导出图片与视频。\n")
 
-    shortcuts = []
+    failed = []
     if not no_shortcut:
         say("正在创建快捷方式…")
-        try:
-            d = desktop_dir()
-            os.makedirs(d, exist_ok=True)
-            shortcuts.append(os.path.join(d, f"{APP_NAME}.lnk"))
-            d2 = start_menu_dir()
-            os.makedirs(d2, exist_ok=True)
-            shortcuts.append(os.path.join(d2, f"{APP_NAME}.lnk"))
-            for lnk in shortcuts:
-                make_shortcut(lnk, exe, dest)
-        except OSError:
-            pass
-        write_uninstall_item(exe)
+        for label, d in (("桌面快捷方式", desktop_dir),
+                         ("开始菜单快捷方式", start_menu_dir)):
+            try:
+                folder = d()
+                os.makedirs(folder, exist_ok=True)
+                lnk_path = os.path.join(folder, f"{APP_NAME}.lnk")
+                if make_shortcut(lnk_path, exe, dest):
+                    continue
+                if shortcut_ready(lnk_path, exe):
+                    continue
+                failed.append(label)
+            except OSError as e:
+                failed.append(f"{label}（{e}）")
+        if not write_uninstall_item(exe):
+            failed.append("卸载登记")
 
+    if failed:
+        msg = "已安装；未完成：" + "、".join(failed)
+        say(msg)
+        return True, msg, dest
     say("已安装")
     return True, "已安装", dest
 
@@ -209,6 +243,8 @@ class SetupUI:
         self.no_shortcut = no_shortcut
         self.busy = False
         self.full_state = ""
+        self._q = queue.Queue()
+        self._poll_job = None
         root.title(f"安装 {APP_NAME} V{VERSION}")
         root.resizable(False, False)
         apply_icon(root)
@@ -219,26 +255,42 @@ class SetupUI:
             pass
         center(root, INSTALL_W, INSTALL_H)
 
-        f = tk.Frame(root, bg=BG, padx=20, pady=16)
+        f = tk.Frame(root, bg=BG, padx=22, pady=18)
         f.pack(fill="both", expand=True)
-        f.columnconfigure(1, weight=1)
+        f.columnconfigure(0, weight=1)
 
-        tk.Label(f, text="安装位置", font=font_main, bg=BG, fg=MUTED).grid(
-            row=0, column=0, sticky="w", pady=(2, 14))
-        self.dest = IslandEntry(f, font=font_main)
-        self.dest.grid(row=0, column=1, sticky="ew", padx=(12, 8), pady=(2, 14))
+        card = tk.Frame(f, bg=CARD, highlightbackground=CARD_LINE, highlightthickness=1)
+        card.grid(row=0, column=0, sticky="ew")
+        card.columnconfigure(0, weight=1)
+        row = tk.Frame(card, bg=CARD, padx=16, pady=14)
+        row.grid(row=0, column=0, sticky="ew")
+        row.columnconfigure(1, weight=1)
+
+        tk.Label(row, text="安装位置", font=font_main, bg=CARD, fg=MUTED).grid(
+            row=0, column=0, sticky="w")
+        self.dest = IslandEntry(row, font=font_main, path=True, path_font=font_small,
+                                panel_bg=CARD)
+        self.dest.grid(row=0, column=1, sticky="ew", padx=12)
         self.dest.insert(0, preset or default_dir())
-        CapsuleButton(f, text="浏览…", width=84, height=36, font=font_small,
-                      command=self.pick).grid(row=0, column=2, pady=(2, 14))
+        self.dest.bind("<Return>", self._on_return)
+        CapsuleButton(row, text="浏览…", width=84, height=36, font=font_small,
+                      command=self.pick, bg=CARD).grid(row=0, column=2)
 
         self.btn = CapsuleButton(f, text="安装", command=self.go, primary=True,
-                                 height=42, font=(family, 11, "bold"))
-        self.btn.grid(row=1, column=0, columnspan=3, sticky="ew")
+                                 height=40, font=(family, 10, "bold"))
+        self.btn.grid(row=1, column=0, sticky="ew", pady=(14, 0))
         self.state = tk.Label(f, text="", font=font_small, fg=MUTED, bg=BG,
-                              anchor="w", wraplength=470, justify="left")
-        self.state.grid(row=2, column=0, columnspan=3, sticky="w", pady=(14, 0))
+                              anchor="w", wraplength=540, justify="left")
+        self.state.grid(row=2, column=0, sticky="w", pady=(12, 0))
         Tooltip(self.state, lambda: self.full_state, font=font_small)
         root.bind("<Return>", lambda _e: self.go())
+        root.after_idle(self.dest.reveal_end)
+        root.bind("<Destroy>", self._cancel_poll)
+        self._poll_job = root.after(120, self._poll)
+
+    def _on_return(self, _event=None):
+        self.go()
+        return "break"
 
     def set_state(self, text, color=MUTED):
         self.full_state = text
@@ -250,6 +302,7 @@ class SetupUI:
         if d:
             self.dest.delete(0, "end")
             self.dest.insert(0, os.path.normpath(d))
+            self.dest.reveal_end()
 
     def go(self):
         if self.busy:
@@ -260,10 +313,36 @@ class SetupUI:
         dest = self.dest.get().strip()
 
         def work():
+            # 子线程只投结果，界面全部由主线程轮询取走（tkinter 不保证跨线程 after 安全）
             ok, msg, _d = install(dest, self.no_shortcut)
-            self.root.after(0, lambda: self.done(ok, msg))
+            self._q.put((ok, msg))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _poll(self):
+        try:
+            while True:
+                ok, msg = self._q.get_nowait()
+                try:
+                    self.done(ok, msg)
+                except tk.TclError:
+                    return
+        except queue.Empty:
+            pass
+        try:
+            if not self.root.winfo_exists():
+                return
+            self._poll_job = self.root.after(120, self._poll)
+        except tk.TclError:
+            return
+
+    def _cancel_poll(self, _e=None):
+        try:
+            if getattr(self, "_poll_job", None):
+                self.root.after_cancel(self._poll_job)
+        except (tk.TclError, ValueError):
+            pass
+        self._poll_job = None
 
     def done(self, ok, msg):
         self.busy = False
@@ -273,10 +352,7 @@ class SetupUI:
 
 def run(preset=None, no_shortcut=False):
     root = tk.Tk()
-    try:
-        ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
+    apply_island_style(root)
     fm, fs, family = fonts(root)
     SetupUI(root, fm, fs, family, preset, no_shortcut)
     root.mainloop()

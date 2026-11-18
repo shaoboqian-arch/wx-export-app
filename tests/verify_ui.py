@@ -42,19 +42,21 @@ def shot(name):
     import ctypes
     import time
     from PIL import ImageGrab
-    # 刚创建的窗口 DWM 还没合成完，立即截图会拍到半透明底；等一下并置前
-    time.sleep(0.45)
+    time.sleep(0.35)
     hits = [w for w in all_windows() if "微信收藏导出" in w[1] and w[2][2] > w[2][0]]
     if not hits:
         check(f"截图 {name} 找到窗口", False)
         return
+    hwnd, _title, rect = hits[0]
     try:
-        ctypes.windll.user32.SetForegroundWindow(hits[0][0])
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
     except Exception:
         pass
-    time.sleep(0.3)
-    rect = hits[0][2]
-    img = ImageGrab.grab(bbox=rect, all_screens=True)
+    time.sleep(0.25)
+    try:
+        img = ImageGrab.grab(window=hwnd)
+    except Exception:
+        img = ImageGrab.grab(bbox=rect, all_screens=True)
     path = os.path.join(OUT, name)
     img.save(path)
     check(f"截图 {name}", True, f"{img.width}x{img.height}")

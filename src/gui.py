@@ -19,14 +19,14 @@ import export_list as el
 from common import APP_NAME, VERSION, prefs_path
 from ui_kit import (
     OK, WARN,
-    BG, TEXT, MUTED, ERR, MINT, SAND, BORDER, ERR_BG,
+    BG, TEXT, MUTED, ERR, MINT, SAND, BORDER, ERR_BG, CARD, CARD_LINE,
     Tooltip, apply_icon, apply_island_style, center, fonts,
     CapsuleButton, IslandEntry, IslandBar, PhaseBadge, DatePicker,
 )
 
 W = 600
 BASE_H = 268
-PANEL_H = 360
+PANEL_H = 376
 HINT_H = 96
 PROG_H = 22
 GROUPS = (("image", "图片"), ("video", "视频"), ("other", "其他资料"))
@@ -89,6 +89,7 @@ class App:
         self.pack_failed = []
         self.font_main = font_main
         self.font_small = font_small
+        self.family = family
         self._retrying = False
 
         root.title(f"{APP_NAME}  {VERSION}")
@@ -99,14 +100,15 @@ class App:
         apply_island_style(root)
         center(root, W, BASE_H)
 
-        f = tk.Frame(root, bg=BG, padx=20, pady=16)
+        f = tk.Frame(root, bg=BG, padx=24, pady=18)
         f.pack(fill="both", expand=True)
         f.columnconfigure(1, weight=1)
         f.rowconfigure(5, weight=1)
 
         tk.Label(f, text="目标文件夹", font=font_main, bg=BG, fg=MUTED).grid(
             row=0, column=0, sticky="w", pady=(2, 12))
-        self.dest = IslandEntry(f, font=font_main)
+        self.dest = IslandEntry(f, font=font_main, path=True, path_font=font_small,
+                                panel_bg=BG)
         self.dest.grid(row=0, column=1, sticky="ew", pady=(2, 12), padx=(12, 8))
         self.browse_btn = CapsuleButton(
             f, text="浏览…", command=self.pick, width=84, height=36,
@@ -118,28 +120,25 @@ class App:
         self.date_row = rng = tk.Frame(f, bg=BG)
         rng.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(12, 0), pady=(0, 18))
         rng.columnconfigure(0, weight=1)
-        rng.columnconfigure(3, weight=1)
-        self.frm = IslandEntry(rng, font=font_main, width=10, pxwidth=160)
-        self.to = IslandEntry(rng, font=font_main, width=10, pxwidth=160)
+        rng.columnconfigure(2, weight=1)
+        self.frm = IslandEntry(rng, font=font_main, width=10, pxwidth=160, panel_bg=BG)
+        self.to = IslandEntry(rng, font=font_main, width=10, pxwidth=160, panel_bg=BG)
         self.frm.grid(row=0, column=0, sticky="ew")
-        self._cal_from = DatePicker(self.frm, font=font_small)
-        CapsuleButton(rng, text="▾", command=self._cal_from.toggle, width=28, height=36,
-                      font=font_small).grid(row=0, column=1, padx=(4, 0))
-        tk.Label(rng, text="  —  ", font=font_main, bg=BG, fg=MUTED).grid(row=0, column=2)
-        self.to.grid(row=0, column=3, sticky="ew")
-        self._cal_to = DatePicker(self.to, font=font_small)
-        CapsuleButton(rng, text="▾", command=self._cal_to.toggle, width=28, height=36,
-                      font=font_small).grid(row=0, column=4, padx=(4, 0))
+        tk.Label(rng, text="—", font=font_main, bg=BG, fg=MUTED).grid(
+            row=0, column=1, padx=10)
+        self.to.grid(row=0, column=2, sticky="ew")
+        self._cal_from = DatePicker(self.frm, font=font_small, embedded=True)
+        self._cal_to = DatePicker(self.to, font=font_small, embedded=True)
 
         self.btn = CapsuleButton(f, text="导出", command=self.start, primary=True,
-                                 height=42, font=(family, 11, "bold"))
+                                 height=40, font=(family, 10, "bold"))
         self.btn.grid(row=2, column=0, columnspan=2, sticky="ew", padx=(0, 8))
         self.settings_btn = CapsuleButton(
             f, text="设置", command=self.open_settings,
-            width=84, height=42, font=font_small)
+            width=84, height=40, font=font_small)
         self.settings_btn.grid(row=2, column=2)
 
-        self.prog = IslandBar(f, height=10)
+        self.prog = IslandBar(f, height=8)
         self.prog.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self.prog.grid_remove()
 
@@ -155,11 +154,11 @@ class App:
         self.info.grid(row=0, column=1, padx=(6, 0))
         self.info.grid_remove()
         self.retry_btn = CapsuleButton(sf, text="补导", command=self.start_retry,
-                                       width=64, height=28, font=font_small)
+                                       width=64, height=30, font=font_small)
         self.retry_btn.grid(row=0, column=2, padx=(6, 0))
         self.retry_btn.grid_remove()
         self.open_btn = CapsuleButton(sf, text="打开", command=self.open_result,
-                                      width=64, height=28, font=font_small)
+                                      width=64, height=30, font=font_small)
         self.open_btn.grid(row=0, column=3, padx=(6, 0))
         self.open_btn.grid_remove()
         Tooltip(self.state, lambda: self.full_state, font=font_small)
@@ -191,45 +190,50 @@ class App:
         self._after_id = root.after(60, self.poll)
         threading.Thread(target=self.env_check, daemon=True).start()
         self.root.after(120, lambda: self._restore_retry(prefs))
+        self.root.after_idle(self.dest.reveal_end)
 
     # ---------------------------------------------------------------- 进度表
     def _build_panel(self, parent):
-        p = tk.Frame(parent, bg=BG, highlightbackground=BORDER,
-                     highlightthickness=1, padx=12, pady=10)
+        p = tk.Frame(parent, bg=CARD, highlightbackground=CARD_LINE,
+                     highlightthickness=1, padx=18, pady=14)
         p.columnconfigure(0, weight=1)
         p.rowconfigure(3, weight=1)
 
-        hdr = tk.Frame(p, bg=BG)
+        hdr = tk.Frame(p, bg=CARD)
         hdr.grid(row=0, column=0, columnspan=2, sticky="ew")
         hdr.columnconfigure(4, weight=1)
         self.phase_labels = {}
         for i, (key, label) in enumerate(PHASES):
-            badge = PhaseBadge(hdr, text=label, font=self.font_small, width=70, height=24)
+            badge = PhaseBadge(hdr, text=label, font=self.font_small, width=70, height=24, bg=CARD)
             badge.grid(row=0, column=i, padx=(0, 8))
             self.phase_labels[key] = badge
         CapsuleButton(hdr, text="收起", command=self.hide_panel,
-                      width=64, height=26, font=self.font_small).grid(
+                      width=64, height=26, font=self.font_small, bg=CARD).grid(
             row=0, column=5, sticky="e")
 
-        tbl = tk.Frame(p, bg=BG)
-        tbl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(12, 8))
+        tbl = tk.Frame(p, bg=BG, highlightbackground=CARD_LINE, highlightthickness=1,
+                       padx=16, pady=10)
+        tbl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(12, 10))
+        tbl.columnconfigure(0, weight=2)
+        for j in (1, 2, 3):
+            tbl.columnconfigure(j, weight=1)
         for j, c in enumerate(("类别", "总数", "完整", "未取到原件")):
             tk.Label(tbl, text=c, font=self.font_small, fg=MUTED, bg=BG,
-                     width=12 if j else 14,
-                     anchor="w" if j == 0 else "e").grid(row=0, column=j, padx=(0, 6))
+                     anchor="w" if j == 0 else "e").grid(
+                row=0, column=j, sticky="ew", padx=(0, 8 if j < 3 else 0), pady=(0, 4))
         self.cell = {}
         for i, (g, name) in enumerate(GROUPS, 1):
             tk.Label(tbl, text=name, font=self.font_small, fg=TEXT, bg=BG,
-                     width=14, anchor="w").grid(row=i, column=0, sticky="w")
+                     anchor="w").grid(row=i, column=0, sticky="w", pady=1)
             for j, key in enumerate(("total", "ok", "failed"), 1):
-                v = tk.Label(tbl, text="0", font=self.font_small, fg=TEXT, bg=BG,
-                             width=12, anchor="e")
-                v.grid(row=i, column=j, padx=(0, 6))
+                v = tk.Label(tbl, text="0", font=(self.family, 9, "bold"), fg=TEXT, bg=BG,
+                             anchor="e")
+                v.grid(row=i, column=j, sticky="e", padx=(0, 8 if j < 3 else 0), pady=1)
                 self.cell[(g, key)] = v
 
         self.fail_title = tk.Label(p, text="未取到原件 0",
-                                   font=self.font_small, fg=MUTED, bg=BG, anchor="w")
-        self.fail_title.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 4))
+                                   font=self.font_small, fg=MUTED, bg=CARD, anchor="w")
+        self.fail_title.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 6))
         self.tree = ttk.Treeview(p, columns=("name", "reason"),
                                  show="headings", height=5)
         self.tree.heading("name", text="文件名")
@@ -241,8 +245,9 @@ class App:
         self.tree.grid(row=3, column=0, sticky="nsew")
         sb.grid(row=3, column=1, sticky="ns")
 
-        self.hint = tk.Frame(p, bg=ERR_BG, padx=10, pady=8)
-        self.hint.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.hint = tk.Frame(p, bg=ERR_BG, highlightbackground="#F5C2C0",
+                             highlightthickness=1, padx=12, pady=8)
+        self.hint.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self.hint_label = tk.Label(
             self.hint, text=RETRY_HINT, font=self.font_small, fg=TEXT, bg=ERR_BG,
             justify="left", anchor="w", wraplength=520)
@@ -404,6 +409,7 @@ class App:
         if d:
             self.dest.delete(0, "end")
             self.dest.insert(0, os.path.normpath(d))
+            self.dest.reveal_end()
 
     def set_state(self, text, color=MUTED):
         self.full_state = text
@@ -643,6 +649,7 @@ def _build_running_dialog(root, font_main, font_small):
 def show_already_running():
     """重复启动时的提示窗：与主界面同一套海岛控件，不用原生 messagebox。"""
     root = tk.Tk()
+    apply_icon(root)
     apply_island_style(root)
     fm, fs, _family = fonts(root)
     center(root, 360, 182)
