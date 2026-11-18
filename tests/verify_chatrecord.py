@@ -263,10 +263,12 @@ def main():
     check("清单标出 HTML生成失败",
           any((x.get("状态") or "") == "HTML生成失败" for x in man2),
           f"{sum(1 for x in man2 if (x.get('状态') or '') == 'HTML生成失败')} 行")
-    with open(r2["readme"], encoding="utf-8") as f:
+    # V0.4.6 起 _导出说明.txt / _未取到原件.csv 合并成《导出报告.md》
+    with open(r2["report_md"], encoding="utf-8") as f:
         readme = f.read()
-    check("说明文件列出失败包", "HTML 生成失败的包" in readme and "模拟磁盘写满" in readme)
-    check("说明文件写明成功数", "个包已生成" in readme and "1 个包生成失败" in readme)
+    check("人读报告列出失败包", "HTML 生成失败的包" in readme and "模拟磁盘写满" in readme)
+    check("人读报告写明成功与失败数",
+          "个包已生成" in readme and "1 个包生成失败" in readme)
 
     # 12. 补导必须能处理聊天记录里的附件
     #     历史上这些行被「所属收藏 非空」直接过滤掉，补导对它们完全空转，

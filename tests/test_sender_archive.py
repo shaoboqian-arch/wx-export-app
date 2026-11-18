@@ -230,8 +230,9 @@ class RetryStateAndReadmeTests(unittest.TestCase):
 
     def test_readme_and_items_carry_local_id(self):
         with tempfile.TemporaryDirectory() as td:
-            rp = el.write_readme(
-                os.path.join(td, "_导出说明.txt"),
+            import report_md as rm
+            rp = rm.write_report(
+                td,
                 frm="2026-11-01", to="2026-11-02",
                 include_text_links=True, resolve_kinds=("image", "video"),
                 counts={"完整": 1, "本地仅缩略图": 1, "头部缺失": 0, "未定位本体": 0},

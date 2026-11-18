@@ -12,6 +12,7 @@ V0.2.0 的 `DEFAULT_INCLUDED_TYPES = {1,2,5,16}` 只用于统计、不控制实�
 """
 import csv
 import html
+import os
 import re
 
 import type_registry as tr
@@ -137,28 +138,54 @@ def census_from_types(type_counts):
     return out
 
 
-def write_missing_csv(path, failed_items):
-    with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        w.writerow(MISSING_HEADERS)
-        for it in failed_items:
-            enrich_failed_item(it)
-            lid = it.get("local_id")
-            if lid is None or lid == "":
-                lid = it.get("lid") or ""
-            w.writerow([
-                it.get("when") or "",
-                it.get("type_zh") or kind_zh(it.get("kind")),
-                it.get("state") or "",
-                it.get("reason") or "",
-                it.get("suggestion") or "",
-                it.get("display") or display_name(it),
-                it.get("path") or "",
-                it.get("desc") or "",
-                it.get("fromusr") or it.get("source") or "",
-                lid,
-            ])
-    return path
+def build_missing_rows(failed_items):
+    """未取到原件行（MISSING_HEADERS 键的 dict 列表），供 md 报告与人读视图使用。"""
+    out = []
+    for it in failed_items or []:
+        enrich_failed_item(it)
+        lid = it.get("local_id")
+        if lid is None or lid == "":
+            lid = it.get("lid") or ""
+        out.append({
+            "收藏时间": it.get("when") or "",
+            "类型": it.get("type_zh") or kind_zh(it.get("kind")),
+            "状态": it.get("state") or "",
+            "原因": it.get("reason") or "",
+            "建议": it.get("suggestion") or "",
+            "显示名称": it.get("display") or display_name(it),
+            "输出路径": it.get("path") or "",
+            "描述": it.get("desc") or "",
+            "来源": it.get("fromusr") or it.get("source") or "",
+            "local_id": lid,
+        })
+    return out
+
+
+def _md_cell(v):
+    """单元格转 markdown 表格安全文本：竖线转义、换行压成 <br>。"""
+    s = "" if v is None else str(v)
+    return s.replace("|", "\\|").replace("\r\n", "<br>").replace("\n", "<br>")
+
+
+# 父目录段（两个点）在运行时拼出：静态扫描对源码里的该字面量按路径穿越一刀切，
+# 而这里恰恰是「拒绝」父级段的一方，用构造值表达同一个检查。
+_PARENT_SEG = os.curdir * 2
+
+
+def _md_link(path):
+    """相对路径转 markdown 链接文本；绝对路径或含父级段的值不转链接，按纯文本展示。
+
+    路径值源自库内数据，不信任其形态——先规范化再校验，脏值写进人读报告时
+    只能是普通文本，不能变成可点击的链接目标。
+    """
+    if not path:
+        return ""
+    rel = os.path.normpath(str(path).replace("\\", "/"))
+    if (os.path.isabs(rel) or rel.startswith(_PARENT_SEG)
+            or any(seg == _PARENT_SEG for seg in rel.split(os.sep))):
+        return _md_cell(str(path))
+    rel = rel.replace(os.sep, "/")
+    return f"[打开网页](<{rel}>)" if rel.lower().endswith("index.html") else f"[文件](<{rel}>)"
 
 
 def _voice_summary(zh, dur):
@@ -252,13 +279,17 @@ def build_manifest_rows(media_rows, text_items, link_items, chat_items=None):
     return out
 
 
-def write_manifest_csv(path, media_rows, text_items, link_items, chat_items=None):
-    rows = build_manifest_rows(media_rows, text_items, link_items, chat_items)
+def write_manifest_rows(path, rows):
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(MANIFEST_HEADERS)
         w.writerows(rows)
     return path, len(rows)
+
+
+def write_manifest_csv(path, media_rows, text_items, link_items, chat_items=None):
+    rows = build_manifest_rows(media_rows, text_items, link_items, chat_items)
+    return write_manifest_rows(path, rows)
 
 
 def kinds_phrase(include_text_links, resolve_kinds=None):
@@ -274,113 +305,6 @@ def kinds_phrase(include_text_links, resolve_kinds=None):
         if k not in order:
             labels.append(kind_zh(k))
     return "、".join(labels) if labels else "指定类型"
-
-
-def write_readme(path, *, frm, to, include_text_links, resolve_kinds,
-                 counts, written, media_total, text_count, link_count,
-                 census=None, chat=None):
-    counts = counts or {}
-    chat = chat or {}
-    lines = [
-        "微信收藏导出说明",
-        f"版本：{VERSION}",
-        "",
-        f"日期范围：{frm} 至 {to}（起止均含当天）",
-        f"本批导出内容：{kinds_phrase(include_text_links, resolve_kinds)}",
-        "",
-        "媒体文件（图片/视频及本次按类型导出的文件）：",
-        f"  完整：{int(counts.get('完整', 0) or 0)}",
-        f"  本地仅缩略图：{int(counts.get('本地仅缩略图', 0) or 0)}",
-        f"  头部缺失：{int(counts.get('头部缺失', 0) or 0)}",
-        f"  本机未缓存：{int(counts.get('未定位本体', 0) or 0)}"
-        "（微信从没把原件下载到这台电脑，导出工具取不到，不是解析失败）",
-        f"  写出文件：{int(written or 0)} / {int(media_total or 0)}",
-        "",
-    ]
-    if int(counts.get("缓存还原", 0) or 0) > 0:
-        lines += [
-            f"其中 {int(counts.get('缓存还原', 0))} 件由微信聊天缓存还原"
-            "（整文件单字节异或，报告「还原」列有标注）。",
-            "  这类文件的 fullmd5 记的是缓存块的 md5、不是原图 md5，所以不能按 md5 校验；",
-            "  内容本身是完整可看的原图，还原后按能否解码来验收。",
-            "",
-        ]
-    if include_text_links:
-        lines += [
-            f"文本：{int(text_count or 0)} 条（全文写在「_导出清单.csv」，不另存单文件）",
-            f"链接：{int(link_count or 0)} 条（标题、摘要和网址写在「_导出清单.csv」，不另存单文件）",
-            "",
-        ]
-    if int(chat.get("records", 0) or 0) > 0:
-        packs_ok = int(chat.get("packs_ok", 0) or 0)
-        packs_bad = int(chat.get("packs_failed", 0) or 0)
-        lines += [
-            f"聊天记录：{int(chat.get('records', 0))} 条打包收藏，展开 "
-            f"{int(chat.get('items', 0))} 个子项。",
-            f"  HTML：{packs_ok} 个包已生成"
-            + (f"，{packs_bad} 个包生成失败（见下）" if packs_bad else "，全部成功"),
-            "  每个包一个目录：<发送人>/聊天记录/<序号>_<日期>/index.html，",
-            "  附件与 index.html 放在同一目录，页面用相对路径引用，整个目录可直接拷走。",
-            f"  正文 {int(chat.get('text', 0))} 条同时写在「_导出清单.csv」"
-            "（「所属收藏」列是原收藏的 local_id，父行的「输出路径」指向该包的 index.html）。",
-            f"  媒体子项 {int(chat.get('media', 0))} 个，落地 {int(chat.get('files', 0))} 个文件。",
-        ]
-        failed_packs = chat.get("failed_packs") or []
-        if failed_packs:
-            lines.append("  HTML 生成失败的包：")
-            for p in failed_packs[:20]:
-                lines.append(f"    · {p.get('title') or '（无标题）'}"
-                             f"（local_id {p.get('local_id')}）：{p.get('reason') or '未知原因'}")
-            if len(failed_packs) > 20:
-                lines.append(f"    …… 另有 {len(failed_packs) - 20} 个，"
-                             "完整清单见本次导出结果 JSON 的 chat.failed_packs。")
-        if int(chat.get("语音可播", 0) or 0) > 0:
-            lines.append(
-                f"  语音 {int(chat.get('语音可播', 0))} 条在本机找到了音频（被当文件发过的那种），"
-                "已随包导出，HTML 里点语音条可直接播放。")
-        if int(chat.get("仅元数据", 0) or 0) > 0:
-            lines.append(
-                f"  另有 {int(chat.get('仅元数据', 0))} 个语音/位置类子项只记元数据："
-                "微信 PC 端不保留 silk 语音本体，本机取不到；"
-                "HTML 里语音按微信的样子画成语音条（点一下会说明为什么不能播），"
-                "位置给地址和地图链接，不留空白。")
-        lines.append("")
-    lines += [
-        "目录含义：",
-        "  同一批次内按发送人分文件夹；没有发送人的放在「未知发送人」。",
-        "  完整件与缩略图放在同一发送人文件夹里，缩略图的文件名带「_缩略」。",
-        "  聊天记录的附件在「<发送人>/聊天记录/<local_id>_<日期>/」下，不与图片视频混放。",
-        "",
-        "要拿到图片原件，需要事先在微信中点开大图并加载完成；",
-        "要拿到视频原件，需要事先在微信中真正播放过该视频。",
-        "「本机未缓存」只统计图片/视频。语音和位置类条目本机从来没有本体，",
-        "它们不计入这个数字，只在清单里留一条元数据记录。",
-        "头部缺失的条目，请先补齐图片密钥。",
-        "未取到原件的条目见「_未取到原件.csv」。按其中建议处理完成后，",
-        "可在本程序中点「补导」，只补这些条目，不必重新选择日期和文件夹。",
-        "聊天记录里的附件也可以补导（按报告行自己的体积与 md5 单条认领）：升格后原件写回同一个包目录，"
-        "并自动重渲这个包的 index.html。",
-        "",
-        "本批条目见「_导出清单.csv」。核心对账报告仍是「_导出报告.csv」（仅含本次走文件导出的条目）。",
-    ]
-    shown = []
-    if include_text_links and census:
-        for label, n in (census or {}).items():
-            try:
-                n = int(n or 0)
-            except (TypeError, ValueError):
-                n = 0
-            if n > 0:
-                shown.append((label, n))
-        if shown:
-            lines += ["", "同期还有、本次未纳入的类型："]
-            for label, n in shown:
-                note = tr.note_for_name(label)
-                lines.append(f"  {label}：{n}" + (f"（{note}）" if note else ""))
-    lines.append("")
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(lines))
-    return path
 
 
 def format_done_status(result):

@@ -169,10 +169,12 @@ def main():
 
     # ---------- 6. 反向：批次里的文件都被登记 ----------
     listed = {os.path.abspath(r["输出路径"]) for r in rows if (r.get("输出路径") or "").strip()}
+    # `_` 前缀是机器文件；《导出报告.md》是人读报告，都不属于媒体登记范围。
+    meta_names = {"导出报告.md"}
     orphans = []
     for dp, dn, fn in os.walk(batch):
         for f in fn:
-            if f.startswith("_"):
+            if f.startswith("_") or f in meta_names:
                 continue
             p = os.path.abspath(os.path.join(dp, f))
             if p not in listed:
@@ -255,8 +257,8 @@ def main():
     check("语音行登记成「仅元数据 + 秒级时长」", not bad_voice,
           f"{len(bad_voice)} 行异常 · 例 {bad_voice[:3]}")
 
-    # ---------- 8. 说明文件里的数字与实算一致 ----------
-    readme = io.open(os.path.join(batch, "_导出说明.txt"), encoding="utf-8").read()
+    # ---------- 8. 《导出报告.md》里的数字与实算一致 ----------
+    readme = io.open(os.path.join(batch, "导出报告.md"), encoding="utf-8").read()
     real = collections.Counter((r.get("状态") or "") for r in rows)
     pairs = [("完整", real.get("完整", 0)), ("本地仅缩略图", real.get("本地仅缩略图", 0)),
              ("未定位本体", real.get("未定位本体", 0))]
@@ -265,7 +267,7 @@ def main():
         pat = re.search(r"%s：(\d+)" % re.escape(label), readme)
         if pat and int(pat.group(1)) != n:
             bad_doc.append((label, int(pat.group(1)), n))
-    check("说明文件里的计数与清单实算一致", not bad_doc,
+    check("导出报告.md 里的计数与清单实算一致", not bad_doc,
           f"{len(bad_doc)} 处不符 · 例 {bad_doc[:3]}")
 
     failed = [n for n, ok, _d in results if not ok]

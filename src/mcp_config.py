@@ -146,10 +146,12 @@ def test_connection(timeout=30):
     """模拟严格 MCP 客户端完整握手（含能力探测），验证本服务可被接入。"""
     command, args = current_command()
     argv = [command] + list(args)   # 源码态是 python + app.py + --mcp，冻结态是 exe + --mcp
+    # 子进程是 --console 构建的 exe，不给它会闪出一个多余的控制台窗口。
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     try:
         p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                             errors="replace", bufsize=1)
+                             errors="replace", bufsize=1, creationflags=flags)
     except OSError as e:
         return {"ok": False, "error": f"无法启动：{e}"}
 

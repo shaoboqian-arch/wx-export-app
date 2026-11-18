@@ -29,6 +29,7 @@ import traceback
 import export_list as el
 import chatrecord as cr
 import report_html
+import report_md
 import sender_archive as sa
 from common import core_dir, DEFAULT_KINDS, VERSION, ensure_vendor
 
@@ -800,24 +801,28 @@ def _items_from_report(rows, existing_items=None):
 
 def _write_sidecars(out, *, frm, to, include_tl, ks, counts, written,
                     rows, failed_items, texts, links, census, chat_items=None,
-                    chat=None):
+                    chat=None, pending_lids=None):
+    """批次内附属文件：机器件（_导出清单.csv）+ 人读件（《导出报告.md》）。
+
+    _未取到原件.csv 与 _导出说明.txt 已并入人读报告；
+    _补导状态.json / _导出报告.csv 由调用方按原样另写（补导与对账依赖机器格式）。
+    """
     list_path = os.path.join(out, "_导出清单.csv")
-    missing_path = os.path.join(out, "_未取到原件.csv")
-    readme_path = os.path.join(out, "_导出说明.txt")
-    el.write_missing_csv(missing_path, failed_items)
-    el.write_manifest_csv(list_path, rows, texts if include_tl else [],
-                          links if include_tl else [],
-                          chat_items if include_tl else [])
-    el.write_readme(
-        readme_path,
+    mrows = el.build_manifest_rows(rows, texts if include_tl else [],
+                                   links if include_tl else [],
+                                   chat_items if include_tl else [])
+    el.write_manifest_rows(list_path, mrows)
+    report_md.write_report(
+        out,
         frm=frm, to=to,
         include_text_links=include_tl, resolve_kinds=ks,
         counts=counts, written=written, media_total=len(rows),
         text_count=len(texts) if include_tl else 0,
         link_count=len(links) if include_tl else 0,
-        census=census, chat=chat,
+        census=census, chat=chat, failed_items=failed_items,
+        report_rows=rows, manifest_rows=mrows, pending_lids=pending_lids,
     )
-    return list_path, missing_path, readme_path
+    return list_path, report_md.report_md_path(out)
 
 
 def export(frm, to, dest, kinds=None, root=None, image_key=None,
@@ -1026,14 +1031,15 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
                 census = _census_types(fe, a.isoformat(), query_to)
         except Exception:
             census = None
-    list_path, missing_path, readme_path = _write_sidecars(
+    plids = _pending_lids(rows)
+    list_path, report_md_path = _write_sidecars(
         out, frm=a.isoformat(), to=b.isoformat(), include_tl=include_tl, ks=ks,
         counts=counts, written=written, rows=rows, failed_items=failed_items,
         texts=texts, links=links, census=census, chat_items=chat_items,
-        chat=chat_stat)
+        chat=chat_stat, pending_lids=plids)
     write_retry_state(
         out, frm=a.isoformat(), to=b.isoformat(), kinds=ks,
-        include_text_links=include_tl, pending_lids=_pending_lids(rows))
+        include_text_links=include_tl, pending_lids=plids)
 
     emit("phase", name="done", message="完成")
     say("完成")
@@ -1066,8 +1072,7 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
         "manifest_rows": (len(rows) + len(chat_items)
                           + (len(texts) + len(links) if include_tl else 0)),
         "list": list_path,
-        "missing_list": missing_path,
-        "readme": readme_path,
+        "report_md": report_md_path,
         "census": census or {},
     }
 
@@ -1147,8 +1152,7 @@ def retry_missing(batch_path, root=None, image_key=None,
             "warning": "",
             "include_text_links": include_tl,
             "list": os.path.join(out, "_导出清单.csv"),
-            "missing_list": os.path.join(out, "_未取到原件.csv"),
-            "readme": os.path.join(out, "_导出说明.txt"),
+            "report_md": report_md.report_md_path(out),
             "census": {},
         }
 
@@ -1328,14 +1332,15 @@ def retry_missing(batch_path, root=None, image_key=None,
                                                   batch_dir=out)
         except Exception:
             texts, links, census, chat_items = [], [], None, []
-    list_path, missing_path, readme_path = _write_sidecars(
+    plids = _pending_lids(rows)
+    list_path, report_md_path = _write_sidecars(
         out, frm=a.isoformat(), to=b.isoformat(), include_tl=include_tl, ks=ks,
         counts=counts, written=written, rows=rows, failed_items=failed_items,
         texts=texts, links=links, census=census, chat_items=chat_items,
-        chat=None)
+        chat=None, pending_lids=plids)
     write_retry_state(
         out, frm=a.isoformat(), to=b.isoformat(), kinds=ks,
-        include_text_links=include_tl, pending_lids=_pending_lids(rows))
+        include_text_links=include_tl, pending_lids=plids)
 
     emit("phase", name="done", message="补导完成")
     say("补导完成")
@@ -1363,8 +1368,7 @@ def retry_missing(batch_path, root=None, image_key=None,
         "text_count": len(texts) if include_tl else 0,
         "link_count": len(links) if include_tl else 0,
         "list": list_path,
-        "missing_list": missing_path,
-        "readme": readme_path,
+        "report_md": report_md_path,
         "census": census or {},
     }
 

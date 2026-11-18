@@ -22,14 +22,53 @@ from common import VERSION
 
 
 def hide_console():
+    """隐藏本进程的控制台窗口。
+
+    只在控制台被本进程**独占**时才隐藏：从已有终端手动启动时（--mcp 调试、
+    终端里跑 GUI），控制台是与父终端共享的，隐藏它等于把用户的终端藏掉。
+    GetConsoleProcessList 返回挂在该控制台上的进程数，独占时为 1。
+    """
     if os.name != "nt":
         return
     try:
         h = ctypes.windll.kernel32.GetConsoleWindow()
-        if h:
+        if not h:
+            return
+        buf = (ctypes.c_uint * 8)()
+        n = ctypes.windll.kernel32.GetConsoleProcessList(buf, 8)
+        if n <= 1:
             ctypes.windll.user32.ShowWindow(h, 0)
     except Exception:
         pass
+
+
+_SINGLE_INSTANCE_MUTEX = "Local\\wx-fav-export-gui-singleton"
+_mutex_handle = None
+
+
+def acquire_gui_mutex():
+    """主界面单实例守卫：已有主窗口时返回 False（调 gui.show_already_running() 弹提示）。
+
+    命名互斥体按登录会话隔离（Local\\ 前缀）。**只管主界面**：--mcp 与 --cli 不参与——
+    连接器会话、命令行导出与主界面共存是合法场景（README 有对应用法）。
+    互斥体 API 异常时按可启动处理，不让守卫本身挡住主流程。
+    """
+    global _mutex_handle
+    if os.name != "nt":
+        return True
+    try:
+        error_already_exists = 183
+        h = ctypes.windll.kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX)
+        if not h:
+            return True
+        if ctypes.windll.kernel32.GetLastError() == error_already_exists:
+            # 句柄指向已存在的互斥体，用完即关；持有权归第一个实例，进程退出由系统回收。
+            ctypes.windll.kernel32.CloseHandle(h)
+            return False
+        _mutex_handle = h
+        return True
+    except Exception:
+        return True
 
 
 def out(obj):
@@ -98,6 +137,10 @@ def main():
         return 0
 
     if "--mcp" in argv:
+        # MCP 走 stdio 管道，控制台窗口只是 --console 构建的副产品；
+        # 被连接器拉起时独占一个新控制台，藏掉它，任务栏不再挂黑窗。
+        # 手动在终端里调试时控制台是共享的，hide_console 的独占守卫会放过它。
+        hide_console()
         import mcp_server
         return mcp_server.serve()
 
@@ -141,6 +184,12 @@ def main():
     if "--setup" in argv or "Setup" in basename or "安装" in basename:
         import installer
         return installer.run()
+    # 主界面单实例：重复启动不再开第二个窗口，弹海岛风格提示（--setup 安装向导不受限，
+    # 升级流程需要能在应用运行时再次拉起安装器）。
+    if not acquire_gui_mutex():
+        import gui
+        gui.show_already_running()
+        return 0
     import gui
     return gui.run()
 

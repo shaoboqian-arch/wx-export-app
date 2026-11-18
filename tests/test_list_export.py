@@ -121,27 +121,28 @@ class FileTests(unittest.TestCase):
                 "name": "001_2026-08-11_video_缩略.jpg",
                 "local_id": 4242,
             }]
-            mp = el.write_missing_csv(os.path.join(td, "_未取到原件.csv"), failed)
-            with open(mp, encoding="utf-8-sig", newline="") as f:
-                mrows = list(csv.DictReader(f))
-            self.assertEqual(len(mrows), 1)
-            self.assertEqual(mrows[0]["类型"], "视频")
-            self.assertEqual(mrows[0]["显示名称"], "2026-08-11 视频：某描述")
-            self.assertNotEqual(mrows[0]["显示名称"], "（无文件）")
-            self.assertIn("真正播放", mrows[0]["建议"])
-            self.assertIn("补导", mrows[0]["建议"])
-            self.assertEqual(mrows[0]["local_id"], "4242")
-            self.assertEqual(failed[0]["name"], "001_2026-08-11_video_缩略.jpg")
-
-            rp = el.write_readme(
-                os.path.join(td, "_导出说明.txt"),
+            import report_md as rm
+            mrows = [[1, "2026-08-11 10:00:00", "聊天记录", "已生成HTML", "",
+                      "", "", "", "张三/聊天记录/4242_2026-08-11/index.html", "", "4242"]]
+            rp = rm.write_report(
+                td,
                 frm="2026-08-11", to="2026-08-11",
                 include_text_links=True, resolve_kinds=("image", "video"),
                 counts={"完整": 0, "本地仅缩略图": 1, "头部缺失": 0, "未定位本体": 0},
                 written=1, media_total=1, text_count=1, link_count=1,
                 census={"语音": 0, "视频号": 2, "其他": 0},
-            )
-            text = Path(rp).read_text(encoding='utf-8')
+                failed_items=failed,
+                report_rows=[{"序号": "1", "收藏时间": "2026-08-11 10:00:00",
+                              "类型": "video", "体积": "", "时长": "",
+                              "状态": "本地仅缩略图", "local_id": "4242",
+                              "fullmd5": "abc",
+                              "输出路径": os.path.join(td, "张三", "001.jpg"),
+                              "描述": "某描述", "来源": "wxid_example",
+                              "所属收藏": "", "还原": ""}],
+                manifest_rows=mrows,
+                pending_lids=[4242])
+            self.assertEqual(os.path.basename(rp), "导出报告.md")
+            text = Path(rp).read_text(encoding="utf-8")
             self.assertIn("日期范围：2026-08-11 至 2026-08-11（起止均含当天）", text)
             self.assertIn("本批导出内容：图片、视频、语音、文本、链接", text)
             self.assertIn("文本：1 条", text)
@@ -155,20 +156,34 @@ class FileTests(unittest.TestCase):
             self.assertIn("点开大图", text)
             self.assertIn("真正播放", text)
             self.assertIn("补导", text)
-            self.assertIn("_未取到原件.csv", text)
             self.assertIn("视频号：2", text)
             self.assertNotIn("语音：0", text)
             self.assertNotIn("其他：0", text)
+            self.assertEqual(failed[0]["name"], "001_2026-08-11_video_缩略.jpg")
+            # 未取到原件已并入报告：不再引用旧 csv，口径与原列一致
+            self.assertNotIn("_未取到原件.csv", text)
+            self.assertIn("未取到原件（1 条）", text)
+            self.assertIn("2026-08-11 视频：某描述", text)
+            self.assertIn("| 4242 |", text)
+            # 聊天包父行在清单节转「打开网页」链接
+            self.assertIn("[打开网页](<张三/聊天记录/4242_2026-08-11/index.html>)", text)
+            # 对账表里的绝对路径相对化到批次根：报告随目录拷走转发时不泄露本机路径
+            self.assertIn("[文件](<张三/001.jpg>)", text)
+            self.assertNotIn(td, text)
+            # 补导摘要与 _补导状态.json 口径一致
+            self.assertIn("待补条目：1", text)
+            self.assertIn("同期还有、本次未纳入的类型", text)
 
-            rp0 = el.write_readme(
-                os.path.join(td, "_导出说明-空普查.txt"),
+            rp0 = rm.write_report(
+                td,
                 frm="2026-08-11", to="2026-08-11",
                 include_text_links=True, resolve_kinds=("image", "video"),
                 counts={"完整": 1, "本地仅缩略图": 0, "头部缺失": 0, "未定位本体": 0},
                 written=1, media_total=1, text_count=0, link_count=0,
                 census={"语音": 0, "视频号": 0, "其他": 0},
-            )
-            text0 = Path(rp0).read_text(encoding='utf-8')
+                failed_items=[], report_rows=[], manifest_rows=[], pending_lids=[])
+            text0 = Path(rp0).read_text(encoding="utf-8")
+            self.assertIn("本批无未取到原件", text0)
             self.assertNotIn("同期还有、本次未纳入的类型", text0)
 
     def test_census_and_status(self):

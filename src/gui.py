@@ -619,6 +619,37 @@ class App:
             return
 
 
+def _build_running_dialog(root, font_main, font_small):
+    """重复启动提示的内容区。独立成函数供测试构建（不开 mainloop）。"""
+    root.configure(bg=BG)
+    root.title(APP_NAME)
+    root.resizable(False, False)
+    f = tk.Frame(root, bg=BG, padx=24, pady=18)
+    f.pack(fill="both", expand=True)
+    tk.Label(f, text=f"{APP_NAME}已在运行", font=font_main, bg=BG, fg=TEXT).pack(pady=(2, 6))
+    tk.Label(f, text="请查看已打开的主窗口，无需重复启动。",
+             font=font_small, bg=BG, fg=MUTED, wraplength=280,
+             justify="center").pack(pady=(0, 16))
+    btn = CapsuleButton(f, text="知道了", width=104, height=34,
+                        primary=True, font=font_small, command=root.destroy)
+    btn.pack()
+    btn.focus_set()
+    root.bind("<Return>", lambda _e: root.destroy())
+    root.bind("<Escape>", lambda _e: root.destroy())
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+    return btn
+
+
+def show_already_running():
+    """重复启动时的提示窗：与主界面同一套海岛控件，不用原生 messagebox。"""
+    root = tk.Tk()
+    apply_island_style(root)
+    fm, fs, _family = fonts(root)
+    center(root, 360, 182)
+    _build_running_dialog(root, fm, fs)
+    root.mainloop()
+
+
 def run():
     try:
         root = tk.Tk()
