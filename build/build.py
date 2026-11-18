@@ -6,7 +6,8 @@
 
 步骤:
     1) pip 隔离安装 pyinstaller + pycryptodome 到 build/vendor（清华源，--no-cache-dir）
-    2) PyInstaller 打一个单文件 exe（console 模式，MCP 需要 stdout；GUI 启动时隐藏控制台）
+    2) PyInstaller 打一个单文件 exe（窗口子系统：双击不申请控制台，控制台窗口不会出现；
+       CLI / MCP 走继承的终端或管道句柄，stdout 照常可用）
     3) 生成 Setup.exe / 便携 zip / mcp配置.json / 交付说明
     4) 基础自检：PE 头、--version、文件大小
 """
@@ -75,7 +76,7 @@ def build_exe():
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join([VENDOR, SRC] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
     args = [
-        PY, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console",
+        PY, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
         "--name", "wxexport",
         "--paths", SRC, "--paths", VENDOR,
         "--hidden-import", "Crypto.Cipher.AES",

@@ -71,6 +71,21 @@ def acquire_gui_mutex():
         return True
 
 
+def _ensure_streams():
+    """窗口子系统构建下，双击启动没有控制台，stdin/stdout/stderr 可能为 None。
+
+    CLI / MCP 走的是继承句柄（终端或管道），照常有效；这里只做兜底，
+    让残留的 print / write 落到 devnull，而不是抛 AttributeError。
+    """
+    for name, mode in (("stdin", "r"), ("stdout", "w"), ("stderr", "w")):
+        if getattr(sys, name, None) is not None:
+            continue
+        try:
+            setattr(sys, name, open(os.devnull, mode, encoding="utf-8"))
+        except OSError:
+            pass
+
+
 def out(obj):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -131,6 +146,7 @@ def cli(argv):
 
 
 def main():
+    _ensure_streams()
     argv = sys.argv[1:]
     if "--version" in argv:
         print(VERSION)

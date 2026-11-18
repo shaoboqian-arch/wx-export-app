@@ -6,7 +6,7 @@
 
 图片 · 视频 · 文本 · 链接 · 语音 · 聊天记录网页
 
-![Version](https://img.shields.io/badge/version-V0.4.6-19c8b9.svg)
+![Version](https://img.shields.io/badge/version-V0.4.7-19c8b9.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)
 ![GUI](https://img.shields.io/badge/GUI-Tkinter-794f27.svg)
@@ -20,6 +20,21 @@
 微信收藏导出是一款 Windows 桌面小工具。选好文件夹和日期，即可把本机已登录微信账号里的收藏导出到本地：图片和视频按发送人分文件夹存放，文本、链接和语音写入清单，多选消息打包收藏会单独生成可离线打开的网页。
 
 安装包和便携版二选一即可使用，不必连接 Agent 或任何云端服务。全程在本机完成，密钥和导出内容不会上传。
+
+## V0.4.7 本版变更
+
+双击不再在 Windows Terminal 里多开一个黑色标签页。
+
+- **根因**：exe 是控制台子系统，而系统默认终端是 Windows Terminal。双击时 Windows 把控制台交给 WT
+  开窗，程序里的 `ShowWindow(GetConsoleWindow())` 在 ConPTY 下拿到的是 0×0 的 `PseudoConsoleWindow`，
+  对它无效，窗口就一直留着（上一版藏的只是传统 conhost 黑框）
+- **改法**：改用窗口子系统（`--windowed`，spec `console=False`），双击时不再申请控制台，
+  WT 标签页从源头消失
+- **连带**：安装器派生的 PowerShell 加 `CREATE_NO_WINDOW`（MCP 自检上一版已有）；
+  无控制台时 stdout/stderr 兜底到 devnull，CLI / MCP 走继承句柄不受影响
+- **代价**：GUI 程序在 cmd 里直接运行不会等待提示符（PowerShell / bash / 管道调用不受影响）
+
+V0.4.6 的报告合并与单实例全部保留。
 
 ## V0.4.6 本版变更
 
@@ -93,7 +108,7 @@
 
 ## 下载安装
 
-当前版本是 **V0.4.6**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
+当前版本是 **V0.4.7**。前往 [Releases](https://github.com/shaoboqian-arch/wx-export-app/releases) 下载：
 
 | 安装包 | 说明 |
 |:---|:---|

@@ -17,6 +17,9 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from common import APP_NAME, EXE_NAME, VERSION, app_dir, is_frozen
+
+# 窗口子系统构建下本进程没有控制台，派生 PowerShell 时不加这个会自己弹一个黑框。
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 from ui_kit import (
     OK,
     BG, ERR, MUTED, Tooltip, apply_icon, apply_island_style,
@@ -40,7 +43,7 @@ def _ps(script):
     try:
         r = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", enc],
-            capture_output=True, timeout=45)
+            capture_output=True, timeout=45, creationflags=CREATE_NO_WINDOW)
         out = r.stdout.decode("utf-8", "replace").strip()
         return r.returncode, out
     except (OSError, subprocess.TimeoutExpired) as e:
