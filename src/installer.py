@@ -150,7 +150,7 @@ def install(dest, no_shortcut=False, progress=None):
         f.write(
             f"# {APP_NAME} V{VERSION}\n\n"
             "界面：选目标文件夹 + 日期范围，点导出。每次导出新建带时间戳的批次目录，绝不覆盖已有文件；"
-            "进度表按图片/视频/其他资料显示文件数并列出未取到原件的文件名。\n\n"
+            "批次只保留《导出报告.md》（隐藏状态文件供补导使用）；进度表按图片/视频/其他资料显示文件数并列出未取到原件的文件名。\n\n"
             "MCP：把 mcp配置.json 里 wx-fav-export 这一个键合并进对方 `~/.workbuddy/mcp.json` "
             "已有的 mcpServers（不要整份覆盖），保存后到连接器管理页点「信任」才会生效；"
             "接入后调用 wx_status 验证。也可在软件「设置」里一键写入并测试连接。\n\n"

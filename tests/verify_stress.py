@@ -46,11 +46,14 @@ def md5(p):
 def verify_batch(r):
     if not r.get("ok"):
         return False, r.get("error", "")[:80]
+    batch = r.get("batch_path", "")
     rp = r.get("report", "")
     if not os.path.isfile(rp):
         return False, "报告缺失"
-    with open(rp, encoding="utf-8-sig", newline="") as f:
-        rows = list(csv.DictReader(f))
+    if not batch or os.path.exists(os.path.join(batch, "_导出报告.csv")) or os.path.exists(os.path.join(batch, "_导出清单.csv")):
+        return False, "存在冗余 CSV"
+    import engine
+    rows = engine.read_batch_rows(batch)
     full = [x for x in rows if x.get("状态") == "完整"]
     bad = [x for x in full
            if not os.path.isfile(x.get("输出路径", ""))

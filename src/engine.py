@@ -16,6 +16,7 @@ kinds=link 在核心里仍表示 type=14 聊天记录打包，不是公众号文
 import argparse
 import contextlib
 import csv
+import ctypes
 import datetime as dt
 import glob
 import io
@@ -123,8 +124,8 @@ def _chat_indices(fe, parsed):
 def _chat_manifest_items(fe, frm, query_to, batch_dir=None):
     """补导场景用：只重建聊天记录的清单行，不碰任何文件。
 
-    媒体子项的行已经在 _导出报告.csv 里（补导会重写报告），这里只补
-    父行 + 正文行 + 仅元数据行，否则补导一次清单里的 3705 条正文就没了。
+    媒体子项的行已经在批次状态里（补导会重写），这里只补
+    父行 + 正文行 + 仅元数据行，否则补导一次聊天记录里的正文就没了。
     已生成的 index.html 会被复用（不重写页面），父行的「输出路径」据此回填。
     """
     out = []
@@ -222,15 +223,15 @@ def _export_chat_records(out, fe, frm, query_to, names, start_seq,
 
     媒体子项：复用 fe.resolve_item 认领本地容器，写到
               <批次>/<发送人>/聊天记录/<lid>_<日期>/ 下，单独一层避免与图片视频混放。
-    文本子项：正文进 _导出清单.csv，不落单文件（3705 条，落文件没有意义）。
+    文本子项：正文进批次元数据与《导出报告.md》，不落单文件（避免上千条零碎文件）。
     语音/位置/未知：只记来源与时间，标「仅元数据」——本机没有它们的本体。
 
     **每个包另出一份 index.html**（V0.3.1）：一包一目录，附件与 html 同目录、
     相对路径引用，可离线打开。语音/视频/位置尽量补齐：语音画时长条、视频给封面帧、
     位置给地址 + 地图链接，都没有就写清楚「本机未缓存」，不留空白。
 
-    返回 (报告行, 清单项, 统计)。报告行会并进 _导出报告.csv 并带「所属收藏」，
-    补导逻辑据此跳过它们（子项无法按 lid 单条重取）。
+    返回 (报告行, 清单项, 统计)。报告行保留「所属收藏」，
+    补导逻辑据此按附件体积与 md5 认领（不能按整包 lid 重取）。
     """
     raw = _chat_rows(fe, frm, query_to)
     if only_lids:
@@ -693,8 +694,54 @@ REASONS = {
 RETRY_STATE = "_补导状态.json"
 
 
-def write_retry_state(batch_path, *, frm, to, kinds, include_text_links, pending_lids):
-    """批次内补导状态。严禁写入密钥、image_key 或账号完整路径。"""
+def _hide_file(path):
+    """Windows 下把批次内部状态文件设为隐藏属性。"""
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x02)
+    except Exception:
+        pass
+
+
+def _unhide_file(path):
+    """覆盖写入前解除隐藏属性，避免 Windows 上 os.replace 触发 PermissionError。"""
+    if os.name != "nt" or not os.path.exists(path):
+        return
+    try:
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x80)
+    except Exception:
+        pass
+
+
+def _rel_in_batch(batch_path, path):
+    """把批次目录内的绝对路径转为 POSIX 相对路径，避免把本机路径写进状态文件。"""
+    s = ("" if path is None else str(path)).strip()
+    if not s:
+        return ""
+    base = os.path.abspath(batch_path)
+    p = os.path.abspath(s) if os.path.isabs(s) else os.path.abspath(os.path.join(base, s))
+    try:
+        if os.path.commonpath([base, p]) == base:
+            return os.path.relpath(p, base).replace("\\", "/")
+    except ValueError:
+        pass
+    return s
+
+
+def _abs_in_batch(batch_path, path):
+    """把状态文件里保存的相对路径还原为规范绝对路径。"""
+    s = ("" if path is None else str(path)).strip()
+    if not s:
+        return ""
+    if os.path.isabs(s):
+        return os.path.normpath(s)
+    return os.path.normpath(os.path.join(os.path.abspath(batch_path), s))
+
+
+def write_retry_state(batch_path, *, frm, to, kinds, include_text_links, pending_lids,
+                      rows=None, manifest_rows=None):
+    """批次内机器状态（补导与对账）。严禁写入密钥、image_key 或账号完整路径。"""
     if isinstance(kinds, str):
         ks = [k.strip() for k in kinds.split(",") if k.strip()]
     else:
@@ -712,11 +759,33 @@ def write_retry_state(batch_path, *, frm, to, kinds, include_text_links, pending
         "include_text_links": bool(include_text_links),
         "pending_lids": lids,
     }
+    if rows is not None:
+        ser_rows = []
+        for r in rows:
+            item = {k: ("" if r.get(k) is None else str(r.get(k))) for k in sa.REPORT_HEADERS}
+            item["输出路径"] = _rel_in_batch(batch_path, item.get("输出路径"))
+            ser_rows.append(item)
+        data["rows"] = ser_rows
+    if manifest_rows is not None:
+        ser_manifest = []
+        for r in manifest_rows:
+            if isinstance(r, dict):
+                item = {k: ("" if r.get(k) is None else str(r.get(k))) for k in el.MANIFEST_HEADERS}
+            else:
+                item = {
+                    k: ("" if idx >= len(r) or r[idx] is None else str(r[idx]))
+                    for idx, k in enumerate(el.MANIFEST_HEADERS)
+                }
+            item["输出路径"] = _rel_in_batch(batch_path, item.get("输出路径"))
+            ser_manifest.append(item)
+        data["manifest"] = ser_manifest
     path = os.path.join(batch_path, RETRY_STATE)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    _unhide_file(path)
     os.replace(tmp, path)
+    _hide_file(path)
     return path
 
 
@@ -736,6 +805,43 @@ def read_retry_state(batch_path):
         if "key" in lk or "account" in lk or "secret" in lk or "aes" in lk:
             data.pop(k, None)
     return data
+
+
+def _read_state_table(batch_path, state_key):
+    """从 _补导状态.json 读取表格数组，还原输出路径并将字段统一转为 str（与 CSV 口径一致）。"""
+    batch_abs = os.path.abspath(batch_path)
+    st = read_retry_state(batch_abs)
+    records = st.get(state_key)
+    if not isinstance(records, list):
+        return None
+    out = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        item = {k: ("" if v is None else str(v)) for k, v in r.items()}
+        item["输出路径"] = _abs_in_batch(batch_abs, item.get("输出路径"))
+        out.append(item)
+    return out
+
+
+def read_batch_rows(batch_path):
+    """读取批次对账行，优先走 _补导状态.json，兼容旧版含 _导出报告.csv 的批次。"""
+    rows = _read_state_table(batch_path, "rows")
+    if rows is not None:
+        return rows
+    return sa.read_report(os.path.join(os.path.abspath(batch_path), "_导出报告.csv"))
+
+
+def read_batch_manifest(batch_path):
+    """读取批次导出清单行，优先走 _补导状态.json，兼容旧版含 _导出清单.csv 的批次。"""
+    mrows = _read_state_table(batch_path, "manifest")
+    if mrows is not None:
+        return mrows
+    csv_path = os.path.join(os.path.abspath(batch_path), "_导出清单.csv")
+    if not os.path.isfile(csv_path):
+        return []
+    with open(csv_path, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
 
 
 def _pending_lids(rows):
@@ -801,17 +907,14 @@ def _items_from_report(rows, existing_items=None):
 
 def _write_sidecars(out, *, frm, to, include_tl, ks, counts, written,
                     rows, failed_items, texts, links, census, chat_items=None,
-                    chat=None, pending_lids=None):
-    """批次内附属文件：机器件（_导出清单.csv）+ 人读件（《导出报告.md》）。
+                    chat=None, pending_lids=None, sender_names=None):
+    """批次内人读报告《导出报告.md》；机器状态统一落进隐藏的 _补导状态.json。
 
-    _未取到原件.csv 与 _导出说明.txt 已并入人读报告；
-    _补导状态.json / _导出报告.csv 由调用方按原样另写（补导与对账依赖机器格式）。
+    不再在批次目录残留 _导出报告.csv / _导出清单.csv。
     """
-    list_path = os.path.join(out, "_导出清单.csv")
     mrows = el.build_manifest_rows(rows, texts if include_tl else [],
                                    links if include_tl else [],
                                    chat_items if include_tl else [])
-    el.write_manifest_rows(list_path, mrows)
     report_md.write_report(
         out,
         frm=frm, to=to,
@@ -821,8 +924,9 @@ def _write_sidecars(out, *, frm, to, include_tl, ks, counts, written,
         link_count=len(links) if include_tl else 0,
         census=census, chat=chat, failed_items=failed_items,
         report_rows=rows, manifest_rows=mrows, pending_lids=pending_lids,
+        sender_names=sender_names,
     )
-    return list_path, report_md.report_md_path(out)
+    return mrows, report_md.report_md_path(out)
 
 
 def export(frm, to, dest, kinds=None, root=None, image_key=None,
@@ -939,6 +1043,12 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
     emit("phase", name="report", message="正在按发送人归档并生成清单")
     rp = os.path.join(out, "_导出报告.csv")
     rows = sa.read_report(rp) if os.path.isfile(rp) else []
+    # fe.cmd_export 会写出临时 _导出报告.csv；读入内存后立即删除，批次只留《导出报告.md》与隐藏状态。
+    if os.path.isfile(rp):
+        try:
+            os.remove(rp)
+        except OSError:
+            pass
     # 还原方式只有 resolve_item 知道，cmd_export 写的中间报告没有这一列；
     # 按序号回填，供用户与验收脚本区分「容器解出」与「缓存异或还原」。
     for r in rows:
@@ -985,8 +1095,20 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
             archive_warning = (archive_warning + "；" if archive_warning else "") + \
                 f"聊天记录展开未完成：{type(e).__name__}"
 
-    # 语音归一必须在写报告之前，否则 _导出报告.csv 还写着「未定位本体」，
-    # 与 _导出清单.csv 的「仅元数据」对不上。
+    # 文本 / 链接等未走 resolve_item 的发送人也补进 names，确保人读报告按真名分组
+    if include_tl:
+        extra_senders = [
+            (t.get("fromusr") or "").strip()
+            for t in (texts + links)
+            if (t.get("fromusr") or "").strip() and (t.get("fromusr") or "").strip() not in names
+        ]
+        if extra_senders:
+            try:
+                names.update(sa.folder_names_for(extra_senders, contacts=contacts))
+            except Exception:
+                pass
+
+    # 语音归一：必须在写报告与状态前完成，确保人读报告与状态里的「仅元数据」一致。
     for r in rows:
         if (r.get("类型") or "") != "voice":
             continue
@@ -999,12 +1121,6 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
             ms = 0
         if ms > 600:
             r["时长"] = int(round(ms / 1000.0))
-
-    try:
-        sa.write_report(rp, rows)
-    except Exception as e:
-        archive_warning = (archive_warning + "；" if archive_warning else "") + \
-            f"报告写回未完成：{type(e).__name__}"
 
     written = sum(1 for r in rows if (r.get("输出路径") or "").strip())
     counts = {k: int(v) for k, v in (stat or {}).items()} if isinstance(stat, dict) else {}
@@ -1032,14 +1148,15 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
         except Exception:
             census = None
     plids = _pending_lids(rows)
-    list_path, report_md_path = _write_sidecars(
+    mrows, report_md_path = _write_sidecars(
         out, frm=a.isoformat(), to=b.isoformat(), include_tl=include_tl, ks=ks,
         counts=counts, written=written, rows=rows, failed_items=failed_items,
         texts=texts, links=links, census=census, chat_items=chat_items,
-        chat=chat_stat, pending_lids=plids)
-    write_retry_state(
+        chat=chat_stat, pending_lids=plids, sender_names=names)
+    state_path = write_retry_state(
         out, frm=a.isoformat(), to=b.isoformat(), kinds=ks,
-        include_text_links=include_tl, pending_lids=plids)
+        include_text_links=include_tl, pending_lids=plids,
+        rows=rows, manifest_rows=mrows)
 
     emit("phase", name="done", message="完成")
     say("完成")
@@ -1055,7 +1172,7 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
         "dest": dest,
         "batch": os.path.basename(out),
         "batch_path": out,
-        "report": rp,
+        "report": report_md_path,
         "total": len(rows),
         "written": written,
         "counts": counts,
@@ -1069,10 +1186,10 @@ def export(frm, to, dest, kinds=None, root=None, image_key=None,
         "text_count": len(texts) if include_tl else 0,
         "link_count": len(links) if include_tl else 0,
         "chat": chat_stat or {},
-        "manifest_rows": (len(rows) + len(chat_items)
-                          + (len(texts) + len(links) if include_tl else 0)),
-        "list": list_path,
+        "manifest_rows": len(mrows),
+        "list": "",
         "report_md": report_md_path,
+        "state": state_path,
         "census": census or {},
     }
 
@@ -1111,10 +1228,9 @@ def retry_missing(batch_path, root=None, image_key=None,
     a, b, query_to = _range(st["from"], st["to"])
     include_tl = bool(st.get("include_text_links"))
     ks = _kinds(st.get("kinds") or None)
-    rp = os.path.join(out, "_导出报告.csv")
-    rows = sa.read_report(rp)
+    rows = read_batch_rows(out)
     if not rows:
-        raise EngineError("批次里没有导出报告，无法补导")
+        raise EngineError("批次里没有导出记录，无法补导")
 
     pending_rows = [
         r for r in rows
@@ -1131,6 +1247,7 @@ def retry_missing(batch_path, root=None, image_key=None,
                 counts[s] = counts.get(s, 0) + 1
         say("没有需要补导的条目")
         emit("phase", name="done", message="没有需要补导的条目")
+        rep_md = report_md.report_md_path(out)
         return {
             "ok": True,
             "retried": True,
@@ -1140,7 +1257,7 @@ def retry_missing(batch_path, root=None, image_key=None,
             "kinds": sorted(ks),
             "batch": os.path.basename(out),
             "batch_path": out,
-            "report": rp,
+            "report": rep_md,
             "total": len(rows),
             "written": written,
             "counts": counts,
@@ -1151,8 +1268,9 @@ def retry_missing(batch_path, root=None, image_key=None,
             "still_missing": 0,
             "warning": "",
             "include_text_links": include_tl,
-            "list": os.path.join(out, "_导出清单.csv"),
-            "report_md": report_md.report_md_path(out),
+            "list": "",
+            "report_md": rep_md,
+            "state": os.path.join(out, RETRY_STATE),
             "census": {},
         }
 
@@ -1313,7 +1431,6 @@ def retry_missing(batch_path, root=None, image_key=None,
 
     emit("phase", name="report", message="正在更新导出清单")
     say("正在更新导出清单…")
-    sa.write_report(rp, rows)
     items, failed_items, by_kind = _items_from_report(rows)
     written = sum(1 for r in rows if (r.get("输出路径") or "").strip())
     counts = {}
@@ -1330,17 +1447,25 @@ def retry_missing(batch_path, root=None, image_key=None,
                 census = _census_types(fe, a.isoformat(), query_to)
                 chat_items = _chat_manifest_items(fe, a.isoformat(), query_to,
                                                   batch_dir=out)
+            extra = [
+                (x.get("fromusr") or "").strip()
+                for x in (texts + links + chat_items)
+                if (x.get("fromusr") or "").strip() and (x.get("fromusr") or "").strip() not in names
+            ]
+            if extra:
+                names.update(sa.folder_names_for(extra, contacts=contacts))
         except Exception:
             texts, links, census, chat_items = [], [], None, []
     plids = _pending_lids(rows)
-    list_path, report_md_path = _write_sidecars(
+    mrows, report_md_path = _write_sidecars(
         out, frm=a.isoformat(), to=b.isoformat(), include_tl=include_tl, ks=ks,
         counts=counts, written=written, rows=rows, failed_items=failed_items,
         texts=texts, links=links, census=census, chat_items=chat_items,
-        chat=None, pending_lids=plids)
-    write_retry_state(
+        chat=None, pending_lids=plids, sender_names=names)
+    state_path = write_retry_state(
         out, frm=a.isoformat(), to=b.isoformat(), kinds=ks,
-        include_text_links=include_tl, pending_lids=plids)
+        include_text_links=include_tl, pending_lids=plids,
+        rows=rows, manifest_rows=mrows)
 
     emit("phase", name="done", message="补导完成")
     say("补导完成")
@@ -1354,7 +1479,7 @@ def retry_missing(batch_path, root=None, image_key=None,
         "kinds": sorted(ks),
         "batch": os.path.basename(out),
         "batch_path": out,
-        "report": rp,
+        "report": report_md_path,
         "total": len(rows),
         "written": written,
         "counts": counts,
@@ -1367,8 +1492,9 @@ def retry_missing(batch_path, root=None, image_key=None,
         "include_text_links": include_tl,
         "text_count": len(texts) if include_tl else 0,
         "link_count": len(links) if include_tl else 0,
-        "list": list_path,
+        "list": "",
         "report_md": report_md_path,
+        "state": state_path,
         "census": census or {},
     }
 

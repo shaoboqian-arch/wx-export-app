@@ -3,7 +3,7 @@
 import os
 import sys
 
-VERSION = "0.4.7"   # 唯一版本真源：构建 / 界面 / MCP / 测试都从这里读
+VERSION = "0.5.0"   # 唯一版本真源：构建 / 界面 / MCP / 测试都从这里读
 APP_NAME = "微信收藏导出"
 MCP_SERVER_NAME = "wx-fav-export"
 EXE_NAME = "微信收藏导出.exe"

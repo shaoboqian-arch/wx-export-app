@@ -27,6 +27,7 @@ from ui_kit import (
 W = 600
 BASE_H = 268
 PANEL_H = 376
+PANEL_COMPACT_H = 236
 HINT_H = 96
 PROG_H = 22
 GROUPS = (("image", "图片"), ("video", "视频"), ("other", "其他资料"))
@@ -157,8 +158,8 @@ class App:
                                        width=64, height=30, font=font_small)
         self.retry_btn.grid(row=0, column=2, padx=(6, 0))
         self.retry_btn.grid_remove()
-        self.open_btn = CapsuleButton(sf, text="打开", command=self.open_result,
-                                      width=64, height=30, font=font_small)
+        self.open_btn = CapsuleButton(sf, text="打开文件夹", command=self.open_result,
+                                      width=96, height=30, font=font_small)
         self.open_btn.grid(row=0, column=3, padx=(6, 0))
         self.open_btn.grid_remove()
         Tooltip(self.state, lambda: self.full_state, font=font_small)
@@ -207,9 +208,6 @@ class App:
             badge = PhaseBadge(hdr, text=label, font=self.font_small, width=70, height=24, bg=CARD)
             badge.grid(row=0, column=i, padx=(0, 8))
             self.phase_labels[key] = badge
-        CapsuleButton(hdr, text="收起", command=self.hide_panel,
-                      width=64, height=26, font=self.font_small, bg=CARD).grid(
-            row=0, column=5, sticky="e")
 
         tbl = tk.Frame(p, bg=BG, highlightbackground=CARD_LINE, highlightthickness=1,
                        padx=16, pady=10)
@@ -240,10 +238,16 @@ class App:
         self.tree.heading("reason", text="原因")
         self.tree.column("name", width=310, anchor="w")
         self.tree.column("reason", width=210, anchor="w")
-        sb = ttk.Scrollbar(p, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=sb.set)
+        self.tree_sb = ttk.Scrollbar(p, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=self.tree_sb.set)
         self.tree.grid(row=3, column=0, sticky="nsew")
-        sb.grid(row=3, column=1, sticky="ns")
+        self.tree_sb.grid(row=3, column=1, sticky="ns")
+        self.tree.grid_remove()
+        self.tree_sb.grid_remove()
+        self.fail_empty = tk.Label(
+            p, text="全部条目已就绪，无未取到原件",
+            font=self.font_small, fg=OK, bg=CARD, anchor="w")
+        self.fail_empty.grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 4))
 
         self.hint = tk.Frame(p, bg=ERR_BG, highlightbackground="#F5C2C0",
                              highlightthickness=1, padx=12, pady=8)
@@ -260,20 +264,25 @@ class App:
         if self.busy or self.prog.winfo_manager():
             h += PROG_H
         if self.panel_visible:
-            h += PANEL_H
+            has_list = bool(self.failed or self.pack_failed)
+            h += PANEL_H if has_list else PANEL_COMPACT_H
             if self.hint_visible:
                 h += HINT_H
+        else:
+            has_list = False
+        prev_list = getattr(self, "_panel_has_list", None)
+        self._panel_has_list = has_list
         self.root.minsize(W, h)
         self.root.update_idletasks()
         w = max(W, int(self.root.winfo_width() or W))
         cur_h = int(self.root.winfo_height() or 0)
-        if cur_h < h or not self.panel_visible:
+        if cur_h < h or not self.panel_visible or (prev_list is True and not has_list):
             self.root.geometry(f"{w}x{h}")
 
     def _on_configure(self, event):
         if event.widget is not self.root:
             return
-        state_w = max(160, int(event.width) - 280)
+        state_w = max(160, int(event.width) - 310)
         hint_w = max(200, int(event.width) - 80)
         if int(self.state.cget("wraplength") or 0) != state_w:
             self.state.configure(wraplength=state_w)
@@ -322,16 +331,31 @@ class App:
         self.fail_title.configure(
             text=title, fg=ERR if (bad or self.pack_failed) else MUTED)
         self.tree.delete(*self.tree.get_children())
-        for it in self.failed:
-            label = it.get("display") or it.get("name") or el.display_name(it)
-            if not str(label).strip() or str(label).strip() == "（无文件）":
-                label = el.display_name(it)
-            self.tree.insert("", "end", values=(label, it.get("reason") or ""))
-        for p in self.pack_failed:
-            self.tree.insert("", "end", values=(
-                f'包：{p.get("title") or "（无标题）"}',
-                p.get("reason") or "HTML 生成失败"))
+        has_list = bool(bad or self.pack_failed)
+        if has_list:
+            self.fail_empty.grid_remove()
+            self.tree.grid()
+            self.tree_sb.grid()
+            for it in self.failed:
+                label = it.get("display") or it.get("name") or el.display_name(it)
+                if not str(label).strip() or str(label).strip() == "（无文件）":
+                    label = el.display_name(it)
+                self.tree.insert("", "end", values=(label, it.get("reason") or ""))
+            for p in self.pack_failed:
+                self.tree.insert("", "end", values=(
+                    f'包：{p.get("title") or "（无标题）"}',
+                    p.get("reason") or "HTML 生成失败"))
+        else:
+            self.tree.grid_remove()
+            self.tree_sb.grid_remove()
+            self.fail_empty.configure(
+                text="暂无未取到原件" if self.busy else "全部条目已就绪，无未取到原件",
+                fg=MUTED if self.busy else OK,
+            )
+            self.fail_empty.grid()
         self.dirty = False
+        if self.panel_visible:
+            self.resize()
 
     def handle_event(self, e):
         typ = e.get("type")
@@ -465,8 +489,7 @@ class App:
             return
         self.last_batch = batch
         try:
-            import sender_archive as sa
-            rows = sa.read_report(os.path.join(batch, "_导出报告.csv"))
+            rows = engine.read_batch_rows(batch)
             _items, failed, by_kind = engine._items_from_report(rows)
             self.stats = by_kind
             self.failed = failed

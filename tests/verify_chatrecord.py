@@ -98,15 +98,17 @@ def main():
     check("展开出正文", int(chat.get("text", 0)) > 0, f"{chat.get('text')} 条正文")
 
     batch = r["batch_path"]
-    with open(r["report"], encoding="utf-8-sig", newline="") as f:
-        rep = list(csv.DictReader(f))
+    check("批次只留《导出报告.md》且无冗余 CSV",
+          not os.path.exists(os.path.join(batch, "_导出报告.csv"))
+          and not os.path.exists(os.path.join(batch, "_导出清单.csv"))
+          and os.path.isfile(r["report_md"]))
+    rep = engine.read_batch_rows(batch)
     check("报告有「所属收藏」列", "所属收藏" in (rep[0] if rep else {}), str(list(rep[0])[:4]) if rep else "空")
     check("报告有「还原」列", "还原" in (rep[0] if rep else {}))
     sub = [x for x in rep if (x.get("所属收藏") or "").strip()]
     check("报告里有聊天记录子项行", bool(sub), f"{len(sub)} 行")
 
-    with open(r["list"], encoding="utf-8-sig", newline="") as f:
-        man = list(csv.DictReader(f))
+    man = engine.read_batch_manifest(batch)
     body = [x for x in man if (x.get("所属收藏") or "").strip() and (x.get("内容") or "").strip()]
     check("清单里聊天正文行 > 0", len(body) > 0, f"{len(body)} 行")
     parents = [x for x in man if (x.get("所属收藏") or "").strip() and "共 " in (x.get("摘要") or "")]
@@ -258,8 +260,7 @@ def main():
     check("失败包带 local_id 与原因",
           bool(bad) and bad[0].get("local_id") and "模拟磁盘写满" in (bad[0].get("reason") or ""),
           str(bad[:1]))
-    with open(r2["list"], encoding="utf-8-sig", newline="") as f:
-        man2 = list(csv.DictReader(f))
+    man2 = engine.read_batch_manifest(r2["batch_path"])
     check("清单标出 HTML生成失败",
           any((x.get("状态") or "") == "HTML生成失败" for x in man2),
           f"{sum(1 for x in man2 if (x.get('状态') or '') == 'HTML生成失败')} 行")
@@ -286,7 +287,7 @@ def main():
     with mock.patch.object(fe_mod, "resolve_item", downgrade):
         r3 = engine.safe_call(engine.export, FRM, TO, DEST)
     b3 = r3.get("batch_path") or ""
-    rows3 = sa_mod.read_report(os.path.join(b3, "_导出报告.csv")) if b3 else []
+    rows3 = engine.read_batch_rows(b3) if b3 else []
     chat_pending = [x for x in rows3
                     if (x.get("状态") or "") != "完整"
                     and (x.get("类型") or "") in ("image", "video")
@@ -297,7 +298,7 @@ def main():
     up = int(r4.get("upgraded") or 0)
     check("补导能升格聊天记录附件", up > 0, f"升格 {up} 条 · 仍有 {r4.get('still_missing')} 条")
 
-    rows4 = sa_mod.read_report(os.path.join(b3, "_导出报告.csv"))
+    rows4 = engine.read_batch_rows(b3)
     # 完整件不该再挂 _缩略；仍未取到的条目留着 _缩略 是正常的
     left = [x for x in rows4
             if (x.get("状态") or "") == "完整" and "_缩略" in (x.get("输出路径") or "")]

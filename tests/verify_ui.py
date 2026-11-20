@@ -85,7 +85,8 @@ def main():
     check("图标文件存在", os.path.isfile(icon_path()), icon_path())
 
     check("进度条默认隐藏", not app.prog.winfo_ismapped())
-    check("打开按钮默认隐藏", not app.open_btn.winfo_ismapped())
+    check("打开文件夹按钮默认隐藏", not app.open_btn.winfo_ismapped())
+    check("打开文件夹文案一致", app.open_btn.cget("text") == "打开文件夹")
     check("环境提示默认隐藏", not app.info.winfo_ismapped())
 
     long_text = "导出失败：缺少数据库密钥 C:/Users/用户/.wechat-cli/all_keys.json；请先运行 extract_keys.py 取密钥，然后重新启动本程序，再选择目标文件夹与日期范围重试。"
@@ -126,7 +127,7 @@ def main():
     app.set_state("完成 · 完整 6 · 缩略图 0 · 未定位 0 · export-2026-11-15_2026-11-15-test", "#1a7f37")
     app.open_btn.grid()
     root.update()
-    check("完成后打开按钮可用", bool(app.open_btn.winfo_ismapped()))
+    check("完成后打开文件夹按钮可用", bool(app.open_btn.winfo_ismapped()))
     shot(f"界面-常态-{ROUND}.png")
 
     # 用含失败项的本地复检区间渲染进度表；换机器时按本机数据调整

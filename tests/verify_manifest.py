@@ -46,14 +46,17 @@ def main():
         print("用法: python tests/verify_manifest.py \"<批次目录>\"")
         return 2
     batch = os.path.abspath(BATCH)
-    list_path = os.path.join(batch, "_导出清单.csv")
-    if not os.path.isfile(list_path):
-        print("批次里没有 _导出清单.csv")
+    rows = engine.read_batch_manifest(batch)
+    if not rows:
+        print("批次里没有导出清单记录（_补导状态.json / _导出清单.csv）")
         return 2
 
-    rows = list(csv.DictReader(io.open(list_path, encoding="utf-8-sig")))
-    report = sa.read_report(os.path.join(batch, "_导出报告.csv"))
+    report = engine.read_batch_rows(batch)
     st = engine.read_retry_state(batch)
+    check("新批次无冗余 CSV",
+          not os.path.exists(os.path.join(batch, "_导出清单.csv"))
+          and not os.path.exists(os.path.join(batch, "_导出报告.csv"))
+          if isinstance(st.get("manifest"), list) else True)
     print(f"批次: {os.path.basename(batch)}")
     print(f"区间: {st.get('from')} → {st.get('to')} · kinds={st.get('kinds')}")
     print(f"清单 {len(rows)} 行 · 报告 {len(report)} 行\n")
@@ -68,7 +71,7 @@ def main():
     pack_meta = {lid: (ut, f) for lid, ut, c, f in chat_raw}
 
     # ---------- 1. 序号 ----------
-    seqs = [r["序号"] for r in rows]
+    seqs = [str(r["序号"]) for r in rows]
     check("序号唯一", len(set(seqs)) == len(seqs), f"{len(seqs)} 行")
     try:
         want = [str(i) for i in range(1, len(rows) + 1)]

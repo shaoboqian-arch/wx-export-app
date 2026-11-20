@@ -211,22 +211,69 @@ class UpgradeTests(unittest.TestCase):
 class RetryStateAndReadmeTests(unittest.TestCase):
     def test_retry_state_has_no_secrets(self):
         with tempfile.TemporaryDirectory() as td:
+            f_abs = os.path.join(td, "张三", "001_2026-11-01_image.jpg")
+            rows = [{
+                "序号": "1", "收藏时间": "2026-11-01 10:00:00", "类型": "image",
+                "体积": "123", "时长": "", "状态": "完整", "local_id": "11",
+                "fullmd5": "abc", "head256md5": "", "输出路径": f_abs,
+                "描述": "图", "来源": "wxid_a", "所属收藏": "", "还原": "",
+            }]
+            mrows = [[1, "2026-11-01 10:00:00", "图片", "完整", "图",
+                      "", "", "", f_abs, "wxid_a", ""]]
             path = engine.write_retry_state(
                 td, frm="2026-11-01", to="2026-11-15",
                 kinds=["image", "video"], include_text_links=True,
-                pending_lids=[11, 22],
+                pending_lids=[11, 22], rows=rows, manifest_rows=mrows,
             )
             self.assertEqual(os.path.basename(path), "_补导状态.json")
             text = Path(path).read_text(encoding="utf-8")
             self.assertNotIn("image_key", text)
             self.assertNotIn("image_aes", text)
             self.assertNotIn("account", text.lower())
+            # 路径在状态文件里必须是相对路径，不带本机临时目录绝对路径
+            self.assertNotIn(td, text)
+            self.assertIn("张三/001_2026-11-01_image.jpg", text)
+            if os.name == "nt":
+                import ctypes
+                attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+                self.assertNotEqual(attrs & 0x02, 0, "Windows 下 _补导状态.json 应带隐藏属性")
             st = engine.read_retry_state(td)
             self.assertEqual(st["from"], "2026-11-01")
             self.assertEqual(st["to"], "2026-11-15")
             self.assertEqual(st["pending_lids"], [11, 22])
             self.assertTrue(st["include_text_links"])
             self.assertEqual(st["kinds"], ["image", "video"])
+
+            got_rows = engine.read_batch_rows(td)
+            self.assertEqual(len(got_rows), 1)
+            self.assertEqual(os.path.normpath(got_rows[0]["输出路径"]), os.path.normpath(f_abs))
+            got_man = engine.read_batch_manifest(td)
+            self.assertEqual(len(got_man), 1)
+            self.assertEqual(os.path.normpath(got_man[0]["输出路径"]), os.path.normpath(f_abs))
+
+            # 验证反复覆写隐藏状态的 _补导状态.json 不报 PermissionError
+            engine.write_retry_state(
+                td, frm="2026-11-01", to="2026-11-15",
+                kinds=["image"], include_text_links=False,
+                pending_lids=[], rows=rows, manifest_rows=mrows,
+            )
+
+    def test_read_batch_legacy_csv_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            f_abs = os.path.join(td, "张三", "001_2026-11-01_image.jpg")
+            sa.write_report(os.path.join(td, "_导出报告.csv"), [{
+                "序号": "1", "收藏时间": "2026-11-01 10:00:00", "类型": "image",
+                "体积": "123", "时长": "", "状态": "完整", "local_id": "11",
+                "fullmd5": "abc", "head256md5": "", "输出路径": f_abs,
+                "描述": "图", "来源": "wxid_a", "所属收藏": "", "还原": "",
+            }])
+            engine.write_retry_state(
+                td, frm="2026-11-01", to="2026-11-15",
+                kinds=["image"], include_text_links=True, pending_lids=[],
+            )
+            got = engine.read_batch_rows(td)
+            self.assertEqual(len(got), 1)
+            self.assertEqual(got[0]["输出路径"], f_abs)
 
     def test_readme_and_items_carry_local_id(self):
         with tempfile.TemporaryDirectory() as td:

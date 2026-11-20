@@ -117,30 +117,42 @@ class FileTests(unittest.TestCase):
                 "reason": "本地只有缩略图，未取到原件",
                 "desc": "某描述",
                 "fromusr": "wxid_example",
-                "path": media[0]["输出路径"],
+                "path": os.path.join(td, "张三", "001_2026-08-11_video_缩略.jpg"),
                 "name": "001_2026-08-11_video_缩略.jpg",
                 "local_id": 4242,
             }]
             import report_md as rm
-            mrows = [[1, "2026-08-11 10:00:00", "聊天记录", "已生成HTML", "",
-                      "", "", "", "张三/聊天记录/4242_2026-08-11/index.html", "", "4242"]]
+            mrows = [
+                [1, "2026-08-11 09:00:00", "文本", "已写入清单", "",
+                 "第一行内容\n第二行内容", "", "", "", "wxid_example", ""],
+                [2, "2026-08-11 10:00:00", "视频", "本地仅缩略图", "某描述",
+                 "", "", "", os.path.join(td, "张三", "001_2026-08-11_video_缩略.jpg"),
+                 "wxid_example", ""],
+                [3, "2026-08-11 11:00:00", "链接", "已写入清单", "示例文章",
+                 "", "文章摘要说明", "https://example.com/a", "", "wxid_example", ""],
+                [4, "2026-08-11 12:00:00", "聊天记录", "已生成HTML", "\"张三\"的聊天记录",
+                 "", "共 2 条", "", "张三/聊天记录/4242_2026-08-11/index.html", "wxid_example", "4242"],
+                [5, "2026-08-11 12:01:00", "聊天记录", "已写入清单", "",
+                 "群里一句正文", "张三 · 12:01", "", "", "wxid_example", "4242"],
+            ]
             rp = rm.write_report(
                 td,
                 frm="2026-08-11", to="2026-08-11",
                 include_text_links=True, resolve_kinds=("image", "video"),
-                counts={"完整": 0, "本地仅缩略图": 1, "头部缺失": 0, "未定位本体": 0},
+                counts={"完整": 0, "本地仅缩略图": 1, "头部缺失": 0, "未定位本体": 0, "缓存还原": 1},
                 written=1, media_total=1, text_count=1, link_count=1,
                 census={"语音": 0, "视频号": 2, "其他": 0},
                 failed_items=failed,
                 report_rows=[{"序号": "1", "收藏时间": "2026-08-11 10:00:00",
-                              "类型": "video", "体积": "", "时长": "",
+                              "类型": "video", "体积": "764251", "时长": "17",
                               "状态": "本地仅缩略图", "local_id": "4242",
                               "fullmd5": "abc",
-                              "输出路径": os.path.join(td, "张三", "001.jpg"),
+                              "输出路径": os.path.join(td, "张三", "001_2026-08-11_video_缩略.jpg"),
                               "描述": "某描述", "来源": "wxid_example",
-                              "所属收藏": "", "还原": ""}],
+                              "所属收藏": "", "还原": "缓存还原"}],
                 manifest_rows=mrows,
-                pending_lids=[4242])
+                pending_lids=[4242],
+                sender_names={"wxid_example": "张三"})
             self.assertEqual(os.path.basename(rp), "导出报告.md")
             text = Path(rp).read_text(encoding="utf-8")
             self.assertIn("日期范围：2026-08-11 至 2026-08-11（起止均含当天）", text)
@@ -160,20 +172,33 @@ class FileTests(unittest.TestCase):
             self.assertNotIn("语音：0", text)
             self.assertNotIn("其他：0", text)
             self.assertEqual(failed[0]["name"], "001_2026-08-11_video_缩略.jpg")
-            # 未取到原件已并入报告：不再引用旧 csv，口径与原列一致
+            # 不得残留旧 CSV 文件名与 11~13 列宽表
             self.assertNotIn("_未取到原件.csv", text)
+            self.assertNotIn("_导出报告.csv", text)
+            self.assertNotIn("_导出清单.csv", text)
+            self.assertNotIn("| 序号 | 收藏时间 | 类型 | 状态 | 标题或描述 |", text)
+            self.assertNotIn("| 序号 | 收藏时间 | 类型 | 体积 | 时长 |", text)
+            # 未取到原件改为结构化列表
             self.assertIn("未取到原件（1 条）", text)
             self.assertIn("2026-08-11 视频：某描述", text)
-            self.assertIn("| 4242 |", text)
-            # 聊天包父行在清单节转「打开网页」链接
+            self.assertIn("`local_id: 4242`", text)
+            # 导出明细按发送人分组，含易读体积/时长、文本引用块、链接、聊天记录打开网页与子项缩进
+            self.assertIn("## 导出明细（4 条）", text)
+            self.assertIn("### 张三（4 条）", text)
+            self.assertIn("746 KB · 17 秒 · 缓存还原", text)
+            self.assertIn("  > 第一行内容", text)
+            self.assertIn("  > 第二行内容", text)
+            self.assertIn("[示例文章](<https://example.com/a>)", text)
             self.assertIn("[打开网页](<张三/聊天记录/4242_2026-08-11/index.html>)", text)
-            # 对账表里的绝对路径相对化到批次根：报告随目录拷走转发时不泄露本机路径
-            self.assertIn("[文件](<张三/001.jpg>)", text)
+            self.assertIn("  - [聊天记录] 张三 · 12:01：群里一句正文", text)
+            # 对账表/明细里的绝对路径相对化到批次根：报告随目录拷走转发时不泄露本机路径
+            self.assertIn("[某描述](<张三/001_2026-08-11_video_缩略.jpg>)", text)
             self.assertNotIn(td, text)
             # 补导摘要与 _补导状态.json 口径一致
             self.assertIn("待补条目：1", text)
             self.assertIn("同期还有、本次未纳入的类型", text)
 
+            # 无任何导出条目、未取到原件为 0 时仍应正常输出
             rp0 = rm.write_report(
                 td,
                 frm="2026-08-11", to="2026-08-11",
@@ -185,6 +210,61 @@ class FileTests(unittest.TestCase):
             text0 = Path(rp0).read_text(encoding="utf-8")
             self.assertIn("本批无未取到原件", text0)
             self.assertNotIn("同期还有、本次未纳入的类型", text0)
+
+    def test_report_groups_unknown_sender_last_and_collapses_long_chat(self):
+        import report_md as rm
+        with tempfile.TemporaryDirectory() as td:
+            mrows = [
+                [1, "2026-08-11 08:00:00", "图片", "完整", "",
+                 "", "", "", os.path.join(td, "未知发送人", "001_2026-08-11_image.jpg"), "", ""],
+                [2, "2026-08-11 09:00:00", "视频", "完整", "一段视频",
+                 "", "", "", os.path.join(td, "好友甲", "002_2026-08-11_video.mp4"), "wxid_alpha", ""],
+                [3, "2026-08-11 10:00:00", "聊天记录", "已生成HTML", "\"好友甲\"的聊天记录",
+                 "", "共 10 条", "", "好友甲/聊天记录/009999_2026-08-11/index.html", "wxid_alpha", "9999"],
+            ]
+            for n in range(1, 11):
+                mrows.append([
+                    3 + n, f"2026-08-11 10:{n:02d}:00", "聊天记录", "已写入清单", "",
+                    f"第{n}条子消息", f"好友甲 · 10:{n:02d}", "", "", "wxid_alpha", "9999",
+                ])
+            rp = rm.write_report(
+                td,
+                frm="2026-08-11", to="2026-08-11",
+                include_text_links=True, resolve_kinds=("image", "video"),
+                counts={"完整": 2, "本地仅缩略图": 0, "头部缺失": 0, "未定位本体": 0},
+                written=2, media_total=2, text_count=0, link_count=0,
+                manifest_rows=mrows,
+                report_rows=[
+                    {"序号": "1", "收藏时间": "2026-08-11 08:00:00", "类型": "image",
+                     "体积": "2048", "时长": "", "状态": "完整", "local_id": "10",
+                     "输出路径": os.path.join(td, "未知发送人", "001_2026-08-11_image.jpg"),
+                     "描述": "", "来源": "", "所属收藏": "", "还原": ""},
+                    {"序号": "2", "收藏时间": "2026-08-11 09:00:00", "类型": "video",
+                     "体积": "5242880", "时长": "125", "状态": "完整", "local_id": "11",
+                     "输出路径": os.path.join(td, "好友甲", "002_2026-08-11_video.mp4"),
+                     "描述": "一段视频", "来源": "wxid_alpha", "所属收藏": "", "还原": "本体"},
+                ],
+                failed_items=[
+                    {"when": "2026-08-11 10:00:00", "kind": "video", "state": "未定位本体",
+                     "reason": "本机无本体（原件只在微信 CDN）", "desc": "", "fromusr": "wxid_alpha",
+                     "path": "", "name": "", "local_id": 9999},
+                    {"when": "2026-08-11 10:00:00", "kind": "video", "state": "未定位本体",
+                     "reason": "本机无本体（原件只在微信 CDN）", "desc": "", "fromusr": "wxid_alpha",
+                     "path": "", "name": "", "local_id": 9999},
+                ],
+                pending_lids=[],
+                sender_names={"wxid_alpha": "好友甲"},
+            )
+            txt = Path(rp).read_text(encoding="utf-8")
+            self.assertIn("### 好友甲（2 条）", txt)
+            self.assertIn("### 未知发送人（1 条）", txt)
+            self.assertLess(txt.index("### 好友甲"), txt.index("### 未知发送人"))
+            self.assertIn("5.00 MB · 2 分 05 秒", txt)
+            self.assertNotIn("· 本体", txt)
+            self.assertIn("未取到原件（2 条）", txt)
+            self.assertIn("× 2 件", txt)
+            self.assertIn("共 10 条子项，完整图文与语音请点上方「打开网页」查看", txt)
+            self.assertIn("[001_2026-08-11_image.jpg](<未知发送人/001_2026-08-11_image.jpg>)", txt)
 
     def test_census_and_status(self):
         # 3/8 语音现在也进默认范围（V0.4.3 起），所以不再出现在普查里；

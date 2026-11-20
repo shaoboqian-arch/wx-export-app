@@ -59,9 +59,8 @@ def main():
     check("失败项都带原因", all(x["reason"] for x in r["failed_items"]))
     check("图片/视频/其他三类都在", set(r["by_kind"]) == {"image", "video", "other"})
 
-    # 与基线报告逐行对账：状态、输出文件名必须一致
-    with open(r["report"], encoding="utf-8-sig", newline="") as f:
-        report = list(csv.DictReader(f))
+    # 与对账行逐行核对：状态、输出文件名必须一致
+    report = engine.read_batch_rows(r["batch_path"])
     mismatches = []
     for i, (it, row) in enumerate(zip(items, report), 1):
         disk_name = os.path.basename(row.get("输出路径", "")) if row.get("输出路径") else ""
@@ -82,8 +81,8 @@ def main():
               str([x["state"] for x in fi]))
         check("失败项按类型归入视频/其他", all(x["group"] in ("video", "other") for x in fi),
               str([(x["kind"], x["group"]) for x in fi]))
-        with open(r2["report"], encoding="utf-8-sig", newline="") as f:
-            bad_rows = [x for x in csv.DictReader(f) if x.get("状态") != "完整"]
+        bad_rows = [x for x in engine.read_batch_rows(r2["batch_path"])
+                    if x.get("状态") != "完整"]
         check("失败清单与报告非完整行一一对应", len(bad_rows) == len(fi),
               f"报告 {len(bad_rows)} / 清单 {len(fi)}")
 

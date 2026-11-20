@@ -58,6 +58,35 @@ class GuiLayoutTests(unittest.TestCase):
         self.assertIn("w", str(info["sticky"]))
         self.assertEqual(int(self.app.date_row.grid_slaves(row=0, column=0)[0].grid_info()["column"]), 0)
 
+    def test_open_folder_label_no_collapse_and_empty_state(self):
+        self.assertEqual(self.app.open_btn.cget("text"), "打开文件夹")
+
+        def collect_texts(widget):
+            out = []
+            for ch in widget.winfo_children():
+                try:
+                    t = ch.cget("text")
+                    if isinstance(t, str):
+                        out.append(t)
+                except Exception:
+                    pass
+                out.extend(collect_texts(ch))
+            return out
+
+        self.assertNotIn("收起", collect_texts(self.app.panel))
+        self.app.show_panel()
+        self.app.failed = []
+        self.app.pack_failed = []
+        self.app.refresh_table()
+        self.root.update()
+        self.assertEqual(self.app.tree.winfo_manager(), "")
+        self.assertEqual(self.app.fail_empty.winfo_manager(), "grid")
+        self.app.failed = [{"display": "2026-11-20 视频：测试", "reason": "未定位本体"}]
+        self.app.refresh_table()
+        self.root.update()
+        self.assertEqual(self.app.tree.winfo_manager(), "grid")
+        self.assertEqual(self.app.fail_empty.winfo_manager(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

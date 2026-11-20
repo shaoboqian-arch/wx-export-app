@@ -7,7 +7,7 @@
 
 产出落在 wx-export-app/验证输出/（工作区内），不碰用户既有交付目录。
 """
-import csv
+import ctypes
 import hashlib
 import json
 import os
@@ -95,9 +95,23 @@ def main():
 
     rp = r["report"]
     check("报告存在", os.path.isfile(rp), os.path.basename(rp))
-    with open(rp, encoding="utf-8-sig", newline="") as f:
-        rows = list(csv.DictReader(f))
-    check("报告行数 == total", len(rows) == r.get("total"), f"{len(rows)} vs {r.get('total')}")
+    check("仅保留《导出报告.md》且无冗余 CSV",
+          os.path.basename(rp) == "导出报告.md"
+          and not os.path.exists(os.path.join(batch, "_导出报告.csv"))
+          and not os.path.exists(os.path.join(batch, "_导出清单.csv")),
+          str(sorted(os.listdir(batch))))
+    state_p = os.path.join(batch, "_补导状态.json")
+    has_state = os.path.isfile(state_p)
+    hidden_ok = True
+    if has_state and os.name == "nt":
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(state_p)
+        hidden_ok = bool(attrs != -1 and (attrs & 0x02))
+    check("_补导状态.json 存在且隐藏", has_state and hidden_ok,
+          os.path.basename(state_p))
+
+    import engine
+    rows = engine.read_batch_rows(batch)
+    check("对账行数 == total", len(rows) == r.get("total"), f"{len(rows)} vs {r.get('total')}")
 
     full = [x for x in rows if x.get("状态") == "完整"]
     # 「缓存还原」件的 fullmd5 记的是微信 msg/attach 缓存块的 md5，不是原图 md5，
